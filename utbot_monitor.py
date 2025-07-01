@@ -61,7 +61,7 @@ class WebSocketServer:
         self.server = None
         self.loop = None
         
-    async def register_client(self, websocket, path):
+    async def register_client(self, websocket):
         """注册新客户端"""
         self.clients.add(websocket)
         print(f"客户端连接: {websocket.remote_address}")

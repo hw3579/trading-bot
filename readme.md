@@ -1,0 +1,1 @@
+ta-lib python版本需要c++版本的talib支持 详情安装查看talib 二进制文件安装
