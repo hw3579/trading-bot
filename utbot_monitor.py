@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# eth_utbot_monitor.py
+# utbot_monitor.py
 # ---------------------------------------------------------
 # 抓 K 线 → 更新 CSV → 计算 UT Bot v5 → 检测 buy/sell
 # 支持多币种、多时间框架监控
@@ -14,13 +14,12 @@ import yaml
 import logging
 import logging.handlers
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from indicators.UT_Bot_v5 import compute_ut_bot_v5
-import asyncio
-import websockets
-import json
-import threading
+
+# 导入 WebSocket 服务器
+from message_server import start_message_server, send_message
 
 @dataclass
 class MonitorTarget:
@@ -41,86 +40,14 @@ class Config:
     tail_calc: int
     targets: List[MonitorTarget]
     notification_enabled: bool
-    websocket_enabled: bool    # 新增
-    websocket_host: str        # 新增
-    websocket_port: int        # 新增
+    websocket_enabled: bool
+    websocket_host: str
+    websocket_port: int
     logging_enabled: bool
     log_file: str
     log_max_size_mb: int
     log_backup_count: int
     log_level: str
-
-
-class WebSocketServer:
-    """WebSocket 服务器"""
-    
-    def __init__(self, host: str = "0.0.0.0", port: int = 10000):
-        self.host = host
-        self.port = port
-        self.clients: Set[websockets.WebSocketServerProtocol] = set()
-        self.server = None
-        self.loop = None
-        
-    async def register_client(self, websocket):
-        """注册新客户端"""
-        self.clients.add(websocket)
-        print(f"客户端连接: {websocket.remote_address}")
-        try:
-            welcome_msg = {
-                "type": "welcome",
-                "message": "连接成功，开始接收信号推送",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            await websocket.send(json.dumps(welcome_msg, ensure_ascii=False))
-            await websocket.wait_closed()
-        except websockets.exceptions.ConnectionClosed:
-            pass
-        finally:
-            self.clients.remove(websocket)
-            print(f"客户端断开: {websocket.remote_address}")
-    
-    async def broadcast_message(self, message: dict):
-        """广播消息给所有连接的客户端"""
-        if self.clients:
-            disconnected = set()
-            for client in self.clients.copy():
-                try:
-                    await client.send(json.dumps(message, ensure_ascii=False))
-                except websockets.exceptions.ConnectionClosed:
-                    disconnected.add(client)
-            self.clients -= disconnected
-    
-    def send_message_sync(self, message: dict):
-        """同步发送消息（从其他线程调用）"""
-        if self.loop and not self.loop.is_closed():
-            asyncio.run_coroutine_threadsafe(
-                self.broadcast_message(message), 
-                self.loop
-            )
-    
-    def start_server(self):
-        """启动 WebSocket 服务器"""
-        def run_server():
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
-            
-            # 修改这部分 - 使用协程而不是直接调用 serve
-            async def start_websocket_server():
-                self.server = await websockets.serve(
-                    self.register_client, 
-                    self.host, 
-                    self.port
-                )
-                print(f"WebSocket 服务器启动: ws://{self.host}:{self.port}")
-                await self.server.wait_closed()
-            
-            # 运行服务器
-            self.loop.run_until_complete(start_websocket_server())
-        
-        server_thread = threading.Thread(target=run_server, daemon=True)
-        server_thread.start()
-        time.sleep(1)
-
 
 class CryptoMonitor:
     """加密货币监控器"""
@@ -130,15 +57,15 @@ class CryptoMonitor:
         self.exchange = self._init_exchange()
         self.signal_states = {}
         self.logger = self._setup_logger()
-        self.websocket_server = None  # 新增
+        self.message_server = None
         
-        # 启动 WebSocket 服务器 - 新增这部分
+        # 启动 WebSocket 服务器
         if self.config.websocket_enabled:
-            self.websocket_server = WebSocketServer(
+            self.message_server = start_message_server(
                 self.config.websocket_host, 
                 self.config.websocket_port
             )
-            self.websocket_server.start_server()
+            self.logger.info(f"WebSocket 服务器已启动: ws://{self.config.websocket_host}:{self.config.websocket_port}")
         
     def _load_config(self, config_path: str) -> Config:
         """加载配置文件"""
@@ -168,9 +95,9 @@ class CryptoMonitor:
             tail_calc=data['monitoring']['tail_calc'],
             targets=targets,
             notification_enabled=data['notification']['enabled'],
-            websocket_enabled=websocket_config.get('enabled', False),  # 添加这行
-            websocket_host=websocket_config.get('host', '0.0.0.0'),    # 添加这行
-            websocket_port=websocket_config.get('port', 10000),        # 添加这行
+            websocket_enabled=websocket_config.get('enabled', False),
+            websocket_host=websocket_config.get('host', '0.0.0.0'),
+            websocket_port=websocket_config.get('port', 10000),
             logging_enabled=logging_config.get('enabled', True),
             log_file=logging_config.get('log_file', 'logs/signals.log'),
             log_max_size_mb=logging_config.get('max_file_size_mb', 10),
@@ -238,16 +165,17 @@ class CryptoMonitor:
         else:
             self.logger.info(msg)
         
-        # WebSocket 推送 - 新增这部分
-        if self.config.websocket_enabled and self.websocket_server:
+        # WebSocket 推送 - 使用独立的消息服务器
+        if self.config.websocket_enabled:
             websocket_msg = {
                 "type": "notification",
                 "level": level,
                 "message": msg,
                 "timestamp": self.utc_now().isoformat(),
-                "data": signal_data or {}
+                "data": signal_data or {},
+                "source": "CryptoMonitor"
             }
-            self.websocket_server.send_message_sync(websocket_msg)
+            send_message(websocket_msg)
     
     def fetch_closed_candles(self, target: MonitorTarget) -> pd.DataFrame:
         """获取封闭K线数据"""
