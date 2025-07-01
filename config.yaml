@@ -1,0 +1,53 @@
+# ETH UT Bot Monitor Configuration
+exchange:
+  name: "okx"
+  enable_rate_limit: true
+
+monitoring:
+  trigger_second: 10        # 每分钟 xx:10 秒启动
+  fetch_limit: 1000         # 抓取数据条数
+  tail_calc: 1000          # 计算指标保留最近行数
+
+# 监控目标配置（支持多币种、多时间框架）
+targets:
+  # ETH 监控目标
+  - symbol: "ETH/USDT:USDT"
+    timeframe: "3m"
+    enabled: true
+    csv_raw: "data_raw/ETH/eth_3m_latest.csv"
+    csv_utbot: "data_utbot/ETH/eth_3m_latest_utbotv5.csv"
+
+  - symbol: "ETH/USDT:USDT"
+    timeframe: "5m"
+    enabled: true
+    csv_raw: "data_raw/ETH/eth_5m_latest.csv"
+    csv_utbot: "data_utbot/ETH/eth_5m_latest_utbotv5.csv"
+
+  # SOL 监控目标
+  - symbol: "SOL/USDT:USDT"
+    timeframe: "3m"
+    enabled: true
+    csv_raw: "data_raw/SOL/sol_3m_latest.csv"
+    csv_utbot: "data_utbot/SOL/sol_3m_latest_utbotv5.csv"
+
+  - symbol: "SOL/USDT:USDT"
+    timeframe: "5m"
+    enabled: true
+    csv_raw: "data_raw/SOL/sol_5m_latest.csv"
+    csv_utbot: "data_utbot/SOL/sol_5m_latest_utbotv5.csv"
+
+# 通知配置
+notification:
+  enabled: true
+  websocket:
+    enabled: true
+    host: "0.0.0.0"      # 监听所有接口
+    port: 10000          # WebSocket 端口
+
+# 日志配置
+logging:
+  enabled: true
+  log_file: "logs/signals.log"
+  max_file_size_mb: 10
+  backup_count: 5
+  level: "INFO"
