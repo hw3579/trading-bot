@@ -64,24 +64,19 @@ class EnhancedNotifyClient:
         signal_type = data.get('signal_type', 'UNKNOWN')
         exchange = data.get('exchange', 'N/A').upper()
         symbol = data.get('symbol', 'N/A')
-        timeframe = data.get('timeframe', 'N/A')
         price = data.get('price', 0)
-        timestamp = data.get('timestamp', 'N/A')
-        thread = data.get('thread', 'N/A')
+        timeframe = data.get('timeframe', '')  # 添加这行
         
         # 根据信号类型选择颜色和图标
         if signal_type == "BUY":
             color = "bright_green"
             icon = "🟢"
-            bg_icon = "📈"
         elif signal_type == "SELL":
             color = "bright_red"
             icon = "🔴"
-            bg_icon = "📉"
         else:
             color = "yellow"
             icon = "⚪"
-            bg_icon = "📊"
         
         # 格式化价格
         if isinstance(price, (int, float)) and price > 0:
@@ -92,24 +87,9 @@ class EnhancedNotifyClient:
         else:
             price_str = "N/A"
         
-        # 构建详细信息
-        header = self.get_color_text(f"{icon} {signal_type} SIGNAL {bg_icon}", color)
-        exchange_info = self.get_color_text(f"交易所: {exchange}", "cyan")
-        symbol_info = self.get_color_text(f"币种: {symbol}", "magenta")
-        timeframe_info = self.get_color_text(f"周期: {timeframe}", "blue")
-        price_info = self.get_color_text(f"价格: {price_str}", "yellow")
-        time_info = self.get_color_text(f"时间: {timestamp}", "white")
-        thread_info = self.get_color_text(f"线程: {thread}", "white")
-        
-        return (
-            f"{header}\n"
-            f"  ├─ {exchange_info}\n"
-            f"  ├─ {symbol_info}\n"
-            f"  ├─ {timeframe_info}\n"
-            f"  ├─ {price_info}\n"
-            f"  ├─ {time_info}\n"
-            f"  └─ {thread_info}"
-        )
+        # 修改显示格式，加上timeframe
+        timeframe_str = f" {timeframe}" if timeframe else ""
+        return self.get_color_text(f"{icon} {signal_type} {symbol}{timeframe_str} @ {price_str} ({exchange})", color)
     
     def format_general_message(self, data: Dict[str, Any]) -> str:
         """格式化一般消息"""
@@ -239,6 +219,7 @@ class EnhancedNotifyClient:
                 print(self.get_color_text("⏳ 5秒后重新连接...", "yellow"))
                 await asyncio.sleep(5)
     
+
     async def handle_message(self, data: Dict[str, Any]):
         """处理消息"""
         self.message_count += 1
@@ -260,9 +241,7 @@ class EnhancedNotifyClient:
         
         if is_signal:
             self.signal_count += 1
-            print(f"\n{timestamp_text}")
-            print(self.format_signal_message(signal_data))
-            print("─" * 50)
+            print(f"{timestamp_text} {self.format_signal_message(signal_data)}")
             
             # 显示桌面通知
             self.show_desktop_notification(signal_data)
@@ -279,7 +258,7 @@ class EnhancedNotifyClient:
         # 每100条消息显示一次统计
         if self.message_count % 100 == 0:
             self.show_statistics()
-    
+
     def stop(self):
         """停止客户端"""
         self.running = False

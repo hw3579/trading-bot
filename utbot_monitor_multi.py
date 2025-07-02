@@ -430,7 +430,7 @@ class CryptoMonitor:
             
             # 多线程批量处理所有启用的目标
             cycle_start_time = time.time()
-            self.logger.info(f"🔄 开始新一轮监控，处理 {len(enabled_targets)} 个目标")
+            # self.logger.info(f"🔄 开始新一轮监控，处理 {len(enabled_targets)} 个目标")
             
             results = self.process_targets_batch(enabled_targets)
             
@@ -441,7 +441,7 @@ class CryptoMonitor:
                         f"总耗时: {cycle_time:.2f}s, "
                         f"平均: {cycle_time/len(enabled_targets):.2f}s/目标")
             
-            self.notify(stats_msg, "INFO")
+            # self.notify(stats_msg, "INFO")
             
             if results['error_count'] > 0:
                 self.logger.warning(f"本轮有 {results['error_count']} 个目标处理失败")
