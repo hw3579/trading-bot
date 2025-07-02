@@ -2,7 +2,7 @@
 # utbot_monitor.py
 # ---------------------------------------------------------
 # 抓 K 线 → 更新 CSV → 计算 UT Bot v5 → 检测 buy/sell
-# 支持多币种、多时间框架、多交易所监控
+# 支持多币种、多时间框架、多交易所监控 - 多线程版本
 # ---------------------------------------------------------
 
 import os
@@ -13,6 +13,9 @@ import numpy as np
 import yaml
 import logging
 import logging.handlers
+import threading
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -55,9 +58,10 @@ class Config:
     log_max_size_mb: int
     log_backup_count: int
     log_level: str
+    max_workers: int  # 新增：最大线程数
 
 class CryptoMonitor:
-    """加密货币监控器"""
+    """加密货币监控器 - 多线程版本"""
     
     def __init__(self, config_path: str = "config.yaml"):
         self.config = self._load_config(config_path)
@@ -65,6 +69,14 @@ class CryptoMonitor:
         self.logger = self._setup_logger()
         self.exchanges = self._init_exchanges()
         self.message_server = None
+        
+        # 线程安全锁
+        self._signal_lock = threading.Lock()
+        self._logger_lock = threading.Lock()
+        
+        # 计算最大线程数
+        target_count = len([t for t in self.config.targets if t.enabled])
+        self.max_workers = min(target_count, self.config.max_workers, 20)  # 最多20个线程
         
         # 启动 WebSocket 服务器
         if self.config.websocket_enabled:
@@ -120,7 +132,8 @@ class CryptoMonitor:
             log_file=logging_config.get('log_file', 'logs/signals.log'),
             log_max_size_mb=logging_config.get('max_file_size_mb', 10),
             log_backup_count=logging_config.get('backup_count', 5),
-            log_level=logging_config.get('level', 'INFO')
+            log_level=logging_config.get('level', 'INFO'),
+            max_workers=data['monitoring'].get('max_workers', 8)  # 新增配置项
         )
     
     def _init_exchanges(self) -> Dict[str, ccxt.Exchange]:
@@ -167,14 +180,14 @@ class CryptoMonitor:
             
             # 设置日志格式
             formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                '%(asctime)s - %(name)s - %(levelname)s - [%(threadName)s] - %(message)s'  # 添加线程名
             )
             handler.setFormatter(formatter)
             logger.addHandler(handler)
         
         # 添加控制台处理器（用于实时显示）
         console_handler = logging.StreamHandler()
-        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s')
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
         
@@ -189,16 +202,17 @@ class CryptoMonitor:
         return datetime.utcnow().replace(tzinfo=timezone.utc)
     
     def notify(self, msg: str, level: str = "INFO", signal_data: dict = None):
-        """发送通知并记录日志"""
-        # 控制台输出
-        if self.config.notification_enabled:
-            print(msg)
-        
-        # 记录到日志文件
-        if hasattr(self.logger, level.lower()):
-            getattr(self.logger, level.lower())(msg)
-        else:
-            self.logger.info(msg)
+        """发送通知并记录日志 - 线程安全版本"""
+        with self._logger_lock:  # 确保日志记录线程安全
+            # 控制台输出
+            if self.config.notification_enabled:
+                print(msg)
+            
+            # 记录到日志文件
+            if hasattr(self.logger, level.lower()):
+                getattr(self.logger, level.lower())(msg)
+            else:
+                self.logger.info(msg)
         
         # WebSocket 推送 - 使用独立的消息服务器
         if self.config.websocket_enabled:
@@ -208,7 +222,8 @@ class CryptoMonitor:
                 "message": msg,
                 "timestamp": self.utc_now().isoformat(),
                 "data": signal_data or {},
-                "source": "CryptoMonitor"
+                "source": "CryptoMonitor",
+                "thread": threading.current_thread().name  # 添加线程信息
             }
             send_message(websocket_msg)
     
@@ -230,23 +245,55 @@ class CryptoMonitor:
         return df
     
     def merge_into_csv(self, df_new: pd.DataFrame, path: str) -> pd.DataFrame:
-        """合并新数据到CSV文件"""
+        """合并新数据到CSV文件 - 线程安全版本"""
         # 确保目录存在
         os.makedirs(os.path.dirname(path), exist_ok=True)
         
-        if os.path.exists(path):
-            df_old = pd.read_csv(path, index_col="datetime", parse_dates=True)
-            df_all = pd.concat([df_old, df_new])
-            df_all = df_all[~df_all.index.duplicated(keep='last')].sort_index()
-        else:
-            df_all = df_new
-        df_all.to_csv(path)
-        return df_all
+        # 使用文件锁确保并发写入安全
+        lock_file = f"{path}.lock"
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 简单的文件锁机制
+                if os.path.exists(lock_file):
+                    time.sleep(0.1 * (attempt + 1))  # 递增等待时间
+                    continue
+                
+                # 创建锁文件
+                with open(lock_file, 'w') as f:
+                    f.write(str(os.getpid()))
+                
+                try:
+                    if os.path.exists(path):
+                        df_old = pd.read_csv(path, index_col="datetime", parse_dates=True)
+                        df_all = pd.concat([df_old, df_new])
+                        df_all = df_all[~df_all.index.duplicated(keep='last')].sort_index()
+                    else:
+                        df_all = df_new
+                    
+                    df_all.to_csv(path)
+                    return df_all
+                    
+                finally:
+                    # 清理锁文件
+                    if os.path.exists(lock_file):
+                        os.remove(lock_file)
+                break
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep(0.1)
+        
+        return df_new
     
     def detect_signal(self, df_utbot: pd.DataFrame, target: MonitorTarget) -> Tuple[Optional[str], Optional[str], Optional[dict]]:
-        """检测信号变化"""
+        """检测信号变化 - 线程安全版本"""
         target_key = self._get_target_key(target)
-        last_state = self.signal_states.get(target_key)
+        
+        with self._signal_lock:  # 确保信号状态访问线程安全
+            last_state = self.signal_states.get(target_key)
         
         latest = df_utbot.iloc[-1]
         current_time = self.utc_now().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -258,17 +305,20 @@ class CryptoMonitor:
             "timeframe": target.timeframe,
             "price": float(latest['close']),
             "timestamp": current_time,
-            "target_key": target_key
+            "target_key": target_key,
+            "thread": threading.current_thread().name
         }
         
         if latest["buy"] and last_state != "buy":
-            self.signal_states[target_key] = "buy"
+            with self._signal_lock:
+                self.signal_states[target_key] = "buy"
             signal_msg = f"🟢 BUY SIGNAL - {target.exchange.upper()} {target.symbol} ({target.timeframe}) @ {latest['close']:.4f}"
             signal_data["signal_type"] = "BUY"
             return "buy", signal_msg, signal_data
         
         if latest["sell"] and last_state != "sell":
-            self.signal_states[target_key] = "sell"
+            with self._signal_lock:
+                self.signal_states[target_key] = "sell"
             signal_msg = f"🔴 SELL SIGNAL - {target.exchange.upper()} {target.symbol} ({target.timeframe}) @ {latest['close']:.4f}"
             signal_data["signal_type"] = "SELL"
             return "sell", signal_msg, signal_data
@@ -276,7 +326,10 @@ class CryptoMonitor:
         return last_state, None, None
     
     def process_target(self, target: MonitorTarget):
-        """处理单个监控目标"""
+        """处理单个监控目标 - 多线程版本"""
+        thread_name = threading.current_thread().name
+        start_time = time.time()
+        
         try:
             # ① 抓数据并合并到原 CSV
             df_closed = self.fetch_closed_candles(target)
@@ -295,10 +348,50 @@ class CryptoMonitor:
             if display_msg and signal_data:
                 # 发送通知（包含 WebSocket 推送）
                 self.notify(display_msg, "WARNING", signal_data)
+            
+            # 记录处理时间
+            process_time = time.time() - start_time
+            self.logger.debug(f"✅ [{thread_name}] {target.exchange.upper()} {target.symbol} ({target.timeframe}) 处理完成，耗时: {process_time:.2f}s")
                 
         except Exception as e:
-            error_msg = f"❌ {target.exchange.upper()} {target.symbol} ({target.timeframe}) 运行出错: {e}"
+            error_msg = f"❌ [{thread_name}] {target.exchange.upper()} {target.symbol} ({target.timeframe}) 运行出错: {e}"
             self.notify(error_msg, "ERROR")
+    
+    def process_targets_batch(self, targets: List[MonitorTarget]) -> Dict[str, any]:
+        """批量处理监控目标 - 多线程版本"""
+        results = {
+            'success_count': 0,
+            'error_count': 0,
+            'total_time': 0,
+            'errors': []
+        }
+        
+        start_time = time.time()
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="Worker") as executor:
+            # 提交所有任务
+            future_to_target = {
+                executor.submit(self.process_target, target): target 
+                for target in targets
+            }
+            
+            # 收集结果
+            for future in as_completed(future_to_target):
+                target = future_to_target[future]
+                try:
+                    future.result()  # 获取结果，如果有异常会抛出
+                    results['success_count'] += 1
+                except Exception as e:
+                    results['error_count'] += 1
+                    error_info = {
+                        'target': f"{target.exchange}_{target.symbol}_{target.timeframe}",
+                        'error': str(e)
+                    }
+                    results['errors'].append(error_info)
+                    self.logger.error(f"批处理任务失败: {error_info}")
+        
+        results['total_time'] = time.time() - start_time
+        return results
     
     def seconds_until_trigger(self, now: datetime) -> float:
         """计算距离下次触发的秒数"""
@@ -308,7 +401,7 @@ class CryptoMonitor:
         return (target - now).total_seconds()
     
     def main_loop(self):
-        """主监控循环"""
+        """主监控循环 - 多线程版本"""
         enabled_targets = [t for t in self.config.targets if t.enabled and t.exchange in self.exchanges]
         
         if not enabled_targets:
@@ -323,25 +416,40 @@ class CryptoMonitor:
         start_msg = f"🚀 多交易所监控启动，每分钟 {self.config.trigger_second}s 触发"
         exchange_msg = f"📊 交易所统计: {dict(exchange_counts)}"
         targets_msg = f"🎯 总监控目标: {len(enabled_targets)} 个"
+        thread_msg = f"🧵 多线程处理: {self.max_workers} 个工作线程"
         
         self.notify(start_msg, "INFO")
         self.notify(exchange_msg, "INFO")
         self.notify(targets_msg, "INFO")
+        self.notify(thread_msg, "INFO")
         
         while True:
             sleep_sec = self.seconds_until_trigger(self.utc_now())
             if sleep_sec > 0:
                 time.sleep(sleep_sec)
             
-            # 并行处理所有启用的目标
-            self.logger.debug(f"开始处理 {len(enabled_targets)} 个监控目标")
-            for target in enabled_targets:
-                self.process_target(target)
+            # 多线程批量处理所有启用的目标
+            cycle_start_time = time.time()
+            self.logger.info(f"🔄 开始新一轮监控，处理 {len(enabled_targets)} 个目标")
+            
+            results = self.process_targets_batch(enabled_targets)
+            
+            # 输出处理统计
+            cycle_time = time.time() - cycle_start_time
+            stats_msg = (f"📈 处理完成 - 成功: {results['success_count']}, "
+                        f"失败: {results['error_count']}, "
+                        f"总耗时: {cycle_time:.2f}s, "
+                        f"平均: {cycle_time/len(enabled_targets):.2f}s/目标")
+            
+            self.notify(stats_msg, "INFO")
+            
+            if results['error_count'] > 0:
+                self.logger.warning(f"本轮有 {results['error_count']} 个目标处理失败")
 
 def main():
     """主函数"""
     try:
-        monitor = CryptoMonitor("config.yaml")
+        monitor = CryptoMonitor("config_multi.yaml")
         monitor.main_loop()
     except KeyboardInterrupt:
         print("\n👋 监控已停止")
