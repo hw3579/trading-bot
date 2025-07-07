@@ -164,7 +164,7 @@ class EnhancedNotifyClient:
                 timeout=15,  # 延长显示时间
                 toast=True   # Windows 上使用 toast 通知
             )
-            print(self.get_color_text("🔔 桌面通知已发送", "green"))
+            # print(self.get_color_text("🔔 桌面通知已发送", "green"))
         except Exception as e:
             print(self.get_color_text(f"❌ 桌面通知发送失败: {e}", "red"))
     

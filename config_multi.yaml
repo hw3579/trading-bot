@@ -140,6 +140,9 @@ notification:
     enabled: true
     host: "0.0.0.0"      # 监听所有接口
     port: 10000          # WebSocket 端口
+    ipv6_enabled: true  # 新增：启用 IPv6 支持
+    bind_both: true     # 新增：同时绑定 IPv4 和 IPv6
+    
 
 # 日志配置
 logging:
