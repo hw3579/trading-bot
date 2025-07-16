@@ -5,3 +5,4 @@ PyYAML>=6.0
 websockets>=11.0.0
 colorama
 TA-Lib
+python-telegram-bot

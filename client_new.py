@@ -201,6 +201,7 @@ class EnhancedNotifyClient:
                     async for message in websocket:
                         try:
                             data = json.loads(message)
+                            print(self.get_color_text(f"📥 收到消息: {data}", "cyan"))
                             await self.handle_message(data)
                         except json.JSONDecodeError as e:
                             error_msg = self.get_color_text(f"❌ JSON解析错误: {e}", "red")
