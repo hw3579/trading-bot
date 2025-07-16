@@ -85,11 +85,18 @@ class TelegramNotifyClient:
         
         # 构建消息
         timeframe_str = f" ({timeframe})" if timeframe else ""
-        message = f"{icon} **{signal_type} 信号**\n"
-        message += f"📊 交易对: `{symbol}`{timeframe_str}\n"
-        message += f"💰 价格: `{price_str}`\n"
-        message += f"🏢 交易所: `{exchange}`\n"
-        message += f"⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
+        message = f"{icon} **{signal_type} **\n"
+        message += f"`{symbol}`{timeframe_str}\n"
+        message += f"`{price_str}`\n"
+        message += f"`{exchange}`\n"
+        message += f"`{datetime.now().strftime('%H:%M:%S')}`"
+
+        # timeframe_str = f" ({timeframe})" if timeframe else ""
+        # message = f"{icon} **{signal_type} 信号**\n"
+        # message += f"📊 交易对: `{symbol}`{timeframe_str}\n"
+        # message += f"💰 价格: `{price_str}`\n"
+        # message += f"🏢 交易所: `{exchange}`\n"
+        # message += f"⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
         
         return message
     
