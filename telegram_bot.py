@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class TelegramNotifyClient:
     """Telegram通知客户端"""
     
-    def __init__(self, uri: str, bot_token: str, chat_id: str):
+    def __init__(self, uri: str, bot_token: str, chat_id):
         self.uri = uri
         self.bot_token = bot_token
         if isinstance(chat_id, str):
@@ -52,9 +52,9 @@ class TelegramNotifyClient:
             me = await self.bot.get_me()
             logger.info(f"🤖 Telegram Bot: @{me.username}")
             
-            # 发送测试消息
+            # 发送测试消息到所有chat_id
             test_msg = "🚀 交易信号监控机器人已启动\n📡 正在监听交易信号..."
-            await self.bot.send_message(chat_id=self.chat_id, text=test_msg)
+            await self.send_telegram_message(test_msg)
             logger.info("✅ Telegram 测试消息发送成功")
             return True
         except TelegramError as e:
