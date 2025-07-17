@@ -28,7 +28,10 @@ class TelegramNotifyClient:
     def __init__(self, uri: str, bot_token: str, chat_id: str):
         self.uri = uri
         self.bot_token = bot_token
-        self.chat_id = chat_id
+        if isinstance(chat_id, str):
+            self.chat_ids = [chat_id]
+        else:
+            self.chat_ids = list(chat_id)
         self.running = True
         self.connected_count = 0
         self.message_count = 0
@@ -129,27 +132,27 @@ class TelegramNotifyClient:
     
     async def send_telegram_message(self, message: str, parse_mode='Markdown'):
         """发送Telegram消息"""
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id, 
-                text=message,
-                parse_mode=parse_mode
-            )
-            logger.info("✅ Telegram 消息发送成功")
-        except TelegramError as e:
-            logger.error(f"❌ Telegram 消息发送失败: {e}")
-            # 如果Markdown解析失败，尝试发送纯文本
-            if parse_mode == 'Markdown':
-                try:
-                    # 移除Markdown格式
-                    plain_text = message.replace('**', '').replace('`', '')
-                    await self.bot.send_message(
-                        chat_id=self.chat_id,
-                        text=plain_text
-                    )
-                    logger.info("✅ Telegram 纯文本消息发送成功")
-                except TelegramError as e2:
-                    logger.error(f"❌ Telegram 纯文本消息也发送失败: {e2}")
+        for chat_id in self.chat_ids:
+            try:
+                await self.bot.send_message(
+                    chat_id=chat_id, 
+                    text=message,
+                    parse_mode=parse_mode
+                )
+                logger.info(f"✅ Telegram 消息发送成功 (chat_id={chat_id})")
+            except TelegramError as e:
+                logger.error(f"❌ Telegram 消息发送失败 (chat_id={chat_id}): {e}")
+                # 如果Markdown解析失败，尝试发送纯文本
+                if parse_mode == 'Markdown':
+                    try:
+                        plain_text = message.replace('**', '').replace('`', '')
+                        await self.bot.send_message(
+                            chat_id=chat_id,
+                            text=plain_text
+                        )
+                        logger.info(f"✅ Telegram 纯文本消息发送成功 (chat_id={chat_id})")
+                    except TelegramError as e2:
+                        logger.error(f"❌ Telegram 纯文本消息也发送失败 (chat_id={chat_id}): {e2}")
     
     async def send_statistics(self):
         """发送统计信息到Telegram"""
@@ -254,20 +257,21 @@ async def main():
     """主函数"""
     # 从环境变量获取配置
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    chat_id_env = os.getenv("TELEGRAM_CHAT_ID")
     server_host = os.getenv("WEBSOCKET_HOST", "localhost")
     server_port = os.getenv("WEBSOCKET_PORT", "10000")
     
     if not bot_token:
         logger.error("❌ 请设置环境变量 TELEGRAM_BOT_TOKEN")
         return
-    
-    if not chat_id:
+
+    if not chat_id_env:
         logger.error("❌ 请设置环境变量 TELEGRAM_CHAT_ID")
         return
     
     server_uri = f"ws://{server_host}:{server_port}"
-    
+    chat_id = [cid.strip() for cid in chat_id_env.split(",") if cid.strip()]
+
     # 显示启动信息
     print("=" * 60)
     print("🤖 Telegram 交易信号机器人")

@@ -13,6 +13,7 @@ exchanges:
 
 monitoring:
   trigger_second: 10        # 每分钟 xx:10 秒启动
+  trigger_minutes: 5        # 触发间隔（分钟）- 新增配置
   fetch_limit: 1000         # 抓取数据条数
   tail_calc: 1000          # 计算指标保留最近行数
   max_workers: 2          # 新增：最大线程数配置

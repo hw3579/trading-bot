@@ -143,7 +143,7 @@ class TimeUtils:
         return datetime.utcnow().replace(tzinfo=timezone.utc)
     
     @staticmethod
-    def seconds_until_trigger(current_time: datetime, trigger_second: int) -> float:
+    def seconds_until_trigger(current_time: datetime, minutes: int, trigger_second: int) -> float:
         """
         计算距离下次触发的秒数
         
@@ -156,7 +156,7 @@ class TimeUtils:
         """
         target = current_time.replace(second=trigger_second, microsecond=0)
         if target <= current_time:
-            target += timedelta(minutes=1)
+            target += timedelta(minutes=minutes)
         return (target - current_time).total_seconds()
     
     @staticmethod

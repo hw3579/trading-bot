@@ -52,6 +52,7 @@ class Config:
     """配置类"""
     exchanges: Dict[str, ExchangeConfig]
     trigger_second: int
+    trigger_minutes: int  # 新增：触发分钟间隔
     fetch_limit: int
     tail_calc: int
     targets: List[MonitorTarget]
@@ -143,6 +144,9 @@ class CryptoMonitor:
             exchanges=exchanges,
             trigger_second=ConfigValidator.validate_positive_integer(
                 data['monitoring']['trigger_second'], 'trigger_second', 30
+            ),
+            trigger_minutes=ConfigValidator.validate_positive_integer(
+                data['monitoring'].get('trigger_minutes', 1), 'trigger_minutes', 1
             ),
             fetch_limit=ConfigValidator.validate_positive_integer(
                 data['monitoring']['fetch_limit'], 'fetch_limit', 100
@@ -360,7 +364,7 @@ class CryptoMonitor:
         for target in enabled_targets:
             exchange_counts[target.exchange] = exchange_counts.get(target.exchange, 0) + 1
         
-        start_msg = f"🚀 多交易所监控启动，每分钟 {self.config.trigger_second}s 触发"
+        start_msg = f"🚀 多交易所监控启动，每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s 触发"
         exchange_msg = f"📊 交易所统计: {dict(exchange_counts)}"
         targets_msg = f"🎯 总监控目标: {len(enabled_targets)} 个"
         thread_msg = f"🧵 多线程处理: {self.max_workers} 个工作线程"
@@ -371,7 +375,7 @@ class CryptoMonitor:
         self.notify(thread_msg, "INFO")
         
         while True:
-            sleep_sec = TimeUtils.seconds_until_trigger(TimeUtils.utc_now(), self.config.trigger_second)
+            sleep_sec = TimeUtils.seconds_until_trigger(TimeUtils.utc_now(), minutes=self.config.trigger_minutes, trigger_second=self.config.trigger_second)
             if sleep_sec > 0:
                 time.sleep(sleep_sec)
             
