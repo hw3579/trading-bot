@@ -22,10 +22,10 @@ monitoring:
     # OKX 监控目标
     - exchange: "okx"
       symbol: "BTC/USDT:USDT"
-      timeframe: "3m"
+      timeframe: "15m"
       enabled: true
-      csv_raw: "okx/data_raw/BTC/btc_3m_latest.csv"
-      csv_utbot: "okx/data_utbot/BTC/btc_3m_latest_utbotv5.csv"
+      csv_raw: "okx/data_raw/BTC/btc_15m_latest.csv"
+      csv_utbot: "okx/data_utbot/BTC/btc_15m_latest_utbotv5.csv"
 
     - exchange: "okx"
       symbol: "BTC/USDT:USDT"
@@ -36,10 +36,10 @@ monitoring:
 
     - exchange: "okx"
       symbol: "ETH/USDT:USDT"
-      timeframe: "3m"
+      timeframe: "15m"
       enabled: true
-      csv_raw: "okx/data_raw/ETH/eth_3m_latest.csv"
-      csv_utbot: "okx/data_utbot/ETH/eth_3m_latest_utbotv5.csv"
+      csv_raw: "okx/data_raw/ETH/eth_15m_latest.csv"
+      csv_utbot: "okx/data_utbot/ETH/eth_15m_latest_utbotv5.csv"
 
     - exchange: "okx"
       symbol: "ETH/USDT:USDT"
@@ -50,10 +50,10 @@ monitoring:
 
     - exchange: "okx"
       symbol: "SOL/USDT:USDT"
-      timeframe: "3m"
+      timeframe: "15m"
       enabled: true
-      csv_raw: "okx/data_raw/SOL/sol_3m_latest.csv"
-      csv_utbot: "okx/data_utbot/SOL/sol_3m_latest_utbotv5.csv"
+      csv_raw: "okx/data_raw/SOL/sol_15m_latest.csv"
+      csv_utbot: "okx/data_utbot/SOL/sol_15m_latest_utbotv5.csv"
 
     - exchange: "okx"
       symbol: "SOL/USDT:USDT"
@@ -62,27 +62,13 @@ monitoring:
       csv_raw: "okx/data_raw/SOL/sol_5m_latest.csv"
       csv_utbot: "okx/data_utbot/SOL/sol_5m_latest_utbotv5.csv"
 
-    - exchange: "okx"
-      symbol: "DOGE/USDT:USDT"
-      timeframe: "3m"
-      enabled: true
-      csv_raw: "okx/data_raw/DOGE/doge_3m_latest.csv"
-      csv_utbot: "okx/data_utbot/DOGE/doge_3m_latest_utbotv5.csv"
-
-    - exchange: "okx"
-      symbol: "DOGE/USDT:USDT"
-      timeframe: "5m"
-      enabled: true
-      csv_raw: "okx/data_raw/DOGE/doge_5m_latest.csv"
-      csv_utbot: "okx/data_utbot/DOGE/doge_5m_latest_utbotv5.csv"
-
     # Hyperliquid 监控目标
     - exchange: "hyperliquid"
       symbol: "BTC/USDC:USDC"
-      timeframe: "3m"
+      timeframe: "15m"
       enabled: true
-      csv_raw: "hyperliquid/data_raw/BTC/btc_3m_latest.csv"
-      csv_utbot: "hyperliquid/data_utbot/BTC/btc_3m_latest_utbotv5.csv"
+      csv_raw: "hyperliquid/data_raw/BTC/btc_15m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/BTC/btc_15m_latest_utbotv5.csv"
 
     - exchange: "hyperliquid"
       symbol: "BTC/USDC:USDC"
@@ -93,10 +79,10 @@ monitoring:
 
     - exchange: "hyperliquid"
       symbol: "ETH/USDC:USDC"
-      timeframe: "3m"
+      timeframe: "15m"
       enabled: true
-      csv_raw: "hyperliquid/data_raw/ETH/eth_3m_latest.csv"
-      csv_utbot: "hyperliquid/data_utbot/ETH/eth_3m_latest_utbotv5.csv"
+      csv_raw: "hyperliquid/data_raw/ETH/eth_15m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/ETH/eth_15m_latest_utbotv5.csv"
 
     - exchange: "hyperliquid"
       symbol: "ETH/USDC:USDC"
@@ -107,10 +93,10 @@ monitoring:
 
     - exchange: "hyperliquid"
       symbol: "SOL/USDC:USDC"
-      timeframe: "3m"
+      timeframe: "15m"
       enabled: true
-      csv_raw: "hyperliquid/data_raw/SOL/sol_3m_latest.csv"
-      csv_utbot: "hyperliquid/data_utbot/SOL/sol_3m_latest_utbotv5.csv"
+      csv_raw: "hyperliquid/data_raw/SOL/sol_15m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/SOL/sol_15m_latest_utbotv5.csv"
 
     - exchange: "hyperliquid"
       symbol: "SOL/USDC:USDC"
@@ -118,20 +104,6 @@ monitoring:
       enabled: true
       csv_raw: "hyperliquid/data_raw/SOL/sol_5m_latest.csv"
       csv_utbot: "hyperliquid/data_utbot/SOL/sol_5m_latest_utbotv5.csv"
-
-    - exchange: "hyperliquid"
-      symbol: "DOGE/USDC:USDC"
-      timeframe: "3m"
-      enabled: true
-      csv_raw: "hyperliquid/data_raw/DOGE/doge_3m_latest.csv"
-      csv_utbot: "hyperliquid/data_utbot/DOGE/doge_3m_latest_utbotv5.csv"
-
-    - exchange: "hyperliquid"
-      symbol: "DOGE/USDC:USDC"
-      timeframe: "5m"
-      enabled: true
-      csv_raw: "hyperliquid/data_raw/DOGE/doge_5m_latest.csv"
-      csv_utbot: "hyperliquid/data_utbot/DOGE/doge_5m_latest_utbotv5.csv"
 
 # 通知配置
 notification:

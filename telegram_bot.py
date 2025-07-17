@@ -196,7 +196,7 @@ class TelegramNotifyClient:
             except Exception as e:
                 logger.error(f"❌ 连接错误: {e}")
                 error_msg = f"❌ **连接错误**\n📝 错误: `{str(e)}`\n⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
-                await self.send_telegram_message(error_msg)
+                # await self.send_telegram_message(error_msg)
             
             if self.running:
                 logger.info("⏳ 5秒后重新连接...")
