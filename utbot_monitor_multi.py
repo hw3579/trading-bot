@@ -55,6 +55,8 @@ class Config:
     trigger_minutes: int  # 新增：触发分钟间隔
     fetch_limit: int
     tail_calc: int
+    max_retries: int  # 新增：API请求最大重试次数
+    retry_delay: int  # 新增：重试延迟时间（秒）
     targets: List[MonitorTarget]
     notification_enabled: bool
     websocket_enabled: bool
@@ -154,6 +156,12 @@ class CryptoMonitor:
             tail_calc=ConfigValidator.validate_positive_integer(
                 data['monitoring']['tail_calc'], 'tail_calc', 50
             ),
+            max_retries=ConfigValidator.validate_positive_integer(
+                data['monitoring'].get('max_retries', 3), 'max_retries', 3
+            ),
+            retry_delay=ConfigValidator.validate_positive_integer(
+                data['monitoring'].get('retry_delay', 10), 'retry_delay', 10
+            ),
             targets=targets,
             notification_enabled=data['notification']['enabled'],
             websocket_enabled=websocket_config.get('enabled', False),
@@ -244,18 +252,34 @@ class CryptoMonitor:
             send_message(websocket_msg)
     
     def fetch_closed_candles(self, target: MonitorTarget) -> pd.DataFrame:
-        """获取封闭K线数据"""
+        """获取封闭K线数据 - 带重试机制"""
         if target.exchange not in self.exchanges:
             raise Exception(f"交易所 {target.exchange} 未连接")
             
         exchange = self.exchanges[target.exchange]
+        max_retries = self.config.max_retries
+        retry_delay = self.config.retry_delay
         
-        raw = exchange.fetch_ohlcv(
-            target.symbol, 
-            target.timeframe, 
-            limit=self.config.fetch_limit
-        )
-        return DataFrameUtils.create_ohlcv_dataframe(raw)
+        for attempt in range(max_retries):
+            try:
+                raw = exchange.fetch_ohlcv(
+                    target.symbol, 
+                    target.timeframe, 
+                    limit=self.config.fetch_limit
+                )
+                return DataFrameUtils.create_ohlcv_dataframe(raw)
+                
+            except Exception as e:
+                thread_name = threading.current_thread().name
+                error_msg = f"[{thread_name}] {target.exchange.upper()} {target.symbol} ({target.timeframe}) API请求失败 (尝试 {attempt + 1}/{max_retries}): {e}"
+                
+                if attempt < max_retries - 1:  # 还有重试机会
+                    self.logger.warning(f"⚠️ {error_msg}，{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                else:  # 最后一次尝试失败
+                    error_msg = f"❌ [{thread_name}] {target.exchange.upper()} {target.symbol} ({target.timeframe}) API请求失败，已重试{max_retries}次: {e}"
+                    self.logger.error(error_msg)
+                    raise Exception(f"API请求失败，已重试{max_retries}次: {e}")
     
     def merge_into_csv(self, df_new: pd.DataFrame, path: str) -> pd.DataFrame:
         """合并新数据到CSV文件 - 使用工具类"""
