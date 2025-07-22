@@ -1,10 +1,117 @@
-/data_raw
-/data_utbot
-/logs
+# 数据目录
+/data_raw/
+/data_utbot/
+/okx/
+/hyperliquid/
 
+# 日志文件
+/logs/
+*.log
+logs/
+
+# Python缓存和环境
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
 
-/okx
-/hyperliquid
-
+# 敏感信息
 id.txt
+tg_setup.sh  # 包含敏感信息的配置脚本
+config.yaml
+config_multi.yaml
+*.env
+*.key
+*.pem
+
+# 生成的图片和图表
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+charts/
+output/
+
+# 测试文件和临时脚本
+test_*.py
+*_test.py
+quick_*.py
+temp_*.py
+debug_*.py
+
+# 数据文件
+*.csv
+*.json
+*.xlsx
+*.xls
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+.rope_project_history
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.lnk
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+
+# 文档和笔记
+notes.txt
+TODO.txt
+*.md.bak
+
+# 编译和构建文件
+build/
+dist/
+*.egg-info/
+.tox/
+.coverage
+htmlcov/
+.pytest_cache/
+.cache
+nosetests.xml
+coverage.xml
+
+# 机器学习模型文件
+*.model
+*.pkl
+*.pickle
+models/
+
+# 分析结果和报告
+reports/
+analysis_*.txt
+results/

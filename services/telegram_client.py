@@ -1,38 +1,44 @@
-#!/usr/bin/env python3
-"""
-Telegram机器人客户端
-监听WebSocket服务器并通过Telegram发送交易信号
-需要安装: pip install python-telegram-bot websockets
+"""Telegram客户端服务
+基于原有的telegram_bot.py重构
 """
 
 import asyncio
 import websockets
 import json
 import logging
-from datetime import datetime
-from typing import Dict, Any
 import os
-from telegram import Bot
-from telegram.error import TelegramError
+from datetime import datetime
+from typing import Dict, Any, List, Union
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+try:
+    from telegram import Bot
+    from telegram.error import TelegramError
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    TELEGRAM_AVAILABLE = False
+    Bot = None
+    TelegramError = Exception
+    logging.getLogger(__name__).warning("⚠️ python-telegram-bot 未安装，Telegram功能将被禁用")
+
 logger = logging.getLogger(__name__)
 
-class TelegramNotifyClient:
+class TelegramClient:
     """Telegram通知客户端"""
     
-    def __init__(self, uri: str, bot_token: str, chat_id):
-        self.uri = uri
+    def __init__(self, bot_token: str, chat_ids: Union[str, List[str]], websocket_uri: str):
+        if not TELEGRAM_AVAILABLE:
+            raise ImportError("python-telegram-bot 未安装，无法使用Telegram功能")
+            
         self.bot_token = bot_token
-        if isinstance(chat_id, str):
-            self.chat_ids = [chat_id]
+        self.websocket_uri = websocket_uri
+        
+        # 处理chat_ids
+        if isinstance(chat_ids, str):
+            self.chat_ids = [chat_ids]
         else:
-            self.chat_ids = list(chat_id)
-        self.running = True
+            self.chat_ids = list(chat_ids)
+        
+        self.running = False
         self.connected_count = 0
         self.message_count = 0
         self.signal_count = 0
@@ -88,18 +94,11 @@ class TelegramNotifyClient:
         
         # 构建消息
         timeframe_str = f" ({timeframe})" if timeframe else ""
-        message = f"{icon} **{signal_type} **\n"
+        message = f"{icon} **{signal_type}**\n"
         message += f"`{symbol}`{timeframe_str}\n"
         message += f"`{price_str}`\n"
         message += f"`{exchange}`\n"
         message += f"`{datetime.now().strftime('%H:%M:%S')}`"
-
-        # timeframe_str = f" ({timeframe})" if timeframe else ""
-        # message = f"{icon} **{signal_type} 信号**\n"
-        # message += f"📊 交易对: `{symbol}`{timeframe_str}\n"
-        # message += f"💰 价格: `{price_str}`\n"
-        # message += f"🏢 交易所: `{exchange}`\n"
-        # message += f"⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
         
         return message
     
@@ -171,21 +170,21 @@ class TelegramNotifyClient:
         """连接WebSocket服务器"""
         while self.running:
             try:
-                logger.info(f"🔌 正在连接服务器: {self.uri}")
+                logger.info(f"🔌 正在连接服务器: {self.websocket_uri}")
                 
-                async with websockets.connect(self.uri) as websocket:
+                async with websockets.connect(self.websocket_uri) as websocket:
                     self.connected_count += 1
                     logger.info(f"✅ 已连接到服务器 (第{self.connected_count}次)")
                     
                     # 发送连接成功通知
                     if self.connected_count == 1:
-                        connect_msg = f"🔗 **WebSocket 连接成功**\n📡 服务器: `{self.uri}`\n⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
+                        connect_msg = f"🔗 **WebSocket 连接成功**\n📡 服务器: `{self.websocket_uri}`\n⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
                         await self.send_telegram_message(connect_msg)
                     
                     async for message in websocket:
                         try:
                             data = json.loads(message)
-                            logger.info(f"📥 收到消息: {data}")
+                            logger.debug(f"📥 收到消息: {data}")
                             await self.handle_message(data)
                         except json.JSONDecodeError as e:
                             logger.error(f"❌ JSON解析错误: {e}")
@@ -194,12 +193,10 @@ class TelegramNotifyClient:
                             
             except websockets.exceptions.ConnectionClosed:
                 logger.warning("🔌 WebSocket连接已断开")
-                disconnect_msg = f"⚠️ **连接断开**\n📡 服务器: `{self.uri}`\n⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
+                disconnect_msg = f"⚠️ **连接断开**\n📡 服务器: `{self.websocket_uri}`\n⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
                 await self.send_telegram_message(disconnect_msg)
             except Exception as e:
                 logger.error(f"❌ 连接错误: {e}")
-                error_msg = f"❌ **连接错误**\n📝 错误: `{str(e)}`\n⏰ 时间: `{datetime.now().strftime('%H:%M:%S')}`"
-                # await self.send_telegram_message(error_msg)
             
             if self.running:
                 logger.info("⏳ 5秒后重新连接...")
@@ -243,8 +240,21 @@ class TelegramNotifyClient:
         if self.message_count % 100 == 0:
             await self.send_statistics()
     
+    async def start(self):
+        """启动Telegram客户端"""
+        self.running = True
+        
+        # 测试Telegram连接
+        if not await self.test_telegram_connection():
+            logger.error("❌ Telegram连接测试失败")
+            return False
+        
+        # 开始监听WebSocket
+        await self.connect()
+        return True
+    
     async def stop(self):
-        """停止客户端"""
+        """停止Telegram客户端"""
         self.running = False
         logger.info("👋 正在停止Telegram客户端...")
         
@@ -253,52 +263,20 @@ class TelegramNotifyClient:
         await self.send_telegram_message(stop_msg)
         await self.send_statistics()
 
-async def main():
-    """主函数"""
-    # 从环境变量获取配置
+def create_telegram_client_from_env(websocket_uri: str) -> TelegramClient:
+    """从环境变量创建Telegram客户端"""
+    if not TELEGRAM_AVAILABLE:
+        raise ImportError("python-telegram-bot 未安装，无法使用Telegram功能")
+        
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id_env = os.getenv("TELEGRAM_CHAT_ID")
-    server_host = os.getenv("WEBSOCKET_HOST", "localhost")
-    server_port = os.getenv("WEBSOCKET_PORT", "10000")
     
     if not bot_token:
-        logger.error("❌ 请设置环境变量 TELEGRAM_BOT_TOKEN")
-        return
-
+        raise ValueError("请设置环境变量 TELEGRAM_BOT_TOKEN")
+    
     if not chat_id_env:
-        logger.error("❌ 请设置环境变量 TELEGRAM_CHAT_ID")
-        return
+        raise ValueError("请设置环境变量 TELEGRAM_CHAT_ID")
     
-    server_uri = f"ws://{server_host}:{server_port}"
-    chat_id = [cid.strip() for cid in chat_id_env.split(",") if cid.strip()]
-
-    # 显示启动信息
-    print("=" * 60)
-    print("🤖 Telegram 交易信号机器人")
-    print("=" * 60)
-    print(f"📡 WebSocket服务器: {server_uri}")
-    print(f"🤖 Bot Token: {bot_token[:10]}...")
-    print(f"💬 Chat ID: {chat_id}")
-    print("⌨️  按 Ctrl+C 停止机器人")
-    print("=" * 60)
+    chat_ids = [cid.strip() for cid in chat_id_env.split(",") if cid.strip()]
     
-    try:
-        client = TelegramNotifyClient(server_uri, bot_token, chat_id)
-        
-        # 测试Telegram连接
-        if not await client.test_telegram_connection():
-            logger.error("❌ Telegram连接测试失败，程序退出")
-            return
-        
-        # 开始监听
-        await client.connect()
-        
-    except KeyboardInterrupt:
-        logger.info("⌨️ 收到停止信号")
-        if 'client' in locals():
-            await client.stop()
-    except Exception as e:
-        logger.error(f"❌ 程序异常: {e}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    return TelegramClient(bot_token, chat_ids, websocket_uri)
