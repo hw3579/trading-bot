@@ -68,13 +68,30 @@ class WebSocketServer:
         # 并发发送消息
         tasks = []
         for client in clients_copy:
-            if not client.closed:
+            # 检查连接状态 - 新版websockets库的兼容性修复
+            try:
+                # 检查连接是否仍然开放
+                if hasattr(client, 'closed'):
+                    # 旧版本API
+                    if not client.closed:
+                        tasks.append(self.send_to_client(client, message))
+                elif hasattr(client, 'state'):
+                    # 新版本API - 检查连接状态
+                    from websockets.protocol import State
+                    if client.state == State.OPEN:
+                        tasks.append(self.send_to_client(client, message))
+                else:
+                    # 直接尝试发送，在send_to_client中处理异常
+                    tasks.append(self.send_to_client(client, message))
+            except Exception as e:
+                logger.debug(f"检查客户端状态时出错: {e}")
+                # 如果无法检查状态，直接尝试发送
                 tasks.append(self.send_to_client(client, message))
         
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
     
-    async def handle_client(self, websocket: WebSocketServerProtocol, path: str):
+    async def handle_client(self, websocket: WebSocketServerProtocol):
         """处理客户端连接"""
         await self.register_client(websocket)
         
@@ -152,10 +169,20 @@ class WebSocketServer:
             
             # 关闭所有客户端连接
             if self.clients:
-                await asyncio.gather(
-                    *[client.close() for client in self.clients.copy()],
-                    return_exceptions=True
-                )
+                close_tasks = []
+                for client in self.clients.copy():
+                    try:
+                        # 检查客户端是否有close方法
+                        if hasattr(client, 'close'):
+                            close_tasks.append(client.close())
+                        elif hasattr(client, 'wait_closed'):
+                            # 如果客户端已经有wait_closed方法，说明已经在关闭
+                            pass
+                    except Exception as e:
+                        logger.debug(f"关闭客户端连接时出错: {e}")
+                
+                if close_tasks:
+                    await asyncio.gather(*close_tasks, return_exceptions=True)
             
             logger.info("WebSocket服务器已停止")
     

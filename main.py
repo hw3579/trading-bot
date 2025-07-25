@@ -27,8 +27,13 @@ logger = logging.getLogger(__name__)
 class TradingSystem:
     """交易监控系统主类"""
     
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, log_level: str = None):
         self.config = ConfigLoader.load(config_path)
+        
+        # 如果命令行指定了日志级别，覆盖配置文件设置
+        if log_level:
+            self.config.logging.log_level = log_level
+            
         self.services = {}
         self.monitor = None
         self.running = False
@@ -41,14 +46,37 @@ class TradingSystem:
         # 确保日志目录存在
         os.makedirs(os.path.dirname(self.config.logging.log_file), exist_ok=True)
         
+        # 获取日志级别
+        log_level = getattr(logging, self.config.logging.log_level.upper())
+        
         logging.basicConfig(
-            level=getattr(logging, self.config.logging.log_level.upper()),
+            level=log_level,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(self.config.logging.log_file, encoding='utf-8'),
                 logging.StreamHandler()
             ]
         )
+        
+        # 设置第三方库的日志级别，减少噪音
+        if log_level >= logging.WARNING:
+            # 当设置为WARNING或更高级别时，抑制所有模块的INFO日志
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("websockets").setLevel(logging.WARNING)
+            logging.getLogger("telegram").setLevel(logging.WARNING)
+            logging.getLogger("telegram.ext").setLevel(logging.WARNING)
+            
+            # 同时设置我们自己的模块也使用WARNING级别
+            logging.getLogger("services").setLevel(log_level)
+            logging.getLogger("core").setLevel(log_level)
+            logging.getLogger("strategies").setLevel(log_level)
+            logging.getLogger("__main__").setLevel(log_level)  # 包括主模块
+        else:
+            # 当设置为DEBUG或INFO时，允许第三方库显示INFO日志
+            logging.getLogger("httpx").setLevel(logging.WARNING)  # httpx总是保持WARNING
+            logging.getLogger("websockets").setLevel(log_level)
+            logging.getLogger("telegram").setLevel(log_level)
+            logging.getLogger("telegram.ext").setLevel(log_level)
         
     async def _initial_data_sync(self):
         """启动时进行一次数据同步"""
@@ -186,7 +214,7 @@ async def main():
     print("=" * 60)
     
     # 启动系统
-    system = TradingSystem(args.config)
+    system = TradingSystem(args.config, args.log_level)
     await system.run()
 
 if __name__ == "__main__":
