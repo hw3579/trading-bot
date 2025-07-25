@@ -29,8 +29,8 @@ pip-delete-this-directory.txt
 # 敏感信息
 id.txt
 tg_setup.sh  # 包含敏感信息的配置脚本
-config.yaml
-config_multi.yaml
+# config.yaml
+# config_multi.yaml
 *.env
 *.key
 *.pem

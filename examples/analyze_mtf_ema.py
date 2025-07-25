@@ -25,18 +25,19 @@ warnings.filterwarnings('ignore')
 from indicators.mtf_ema_trend import MTFEMATrend
 
 
-def load_okx_data(symbol: str = "ETH") -> pd.DataFrame:
+def load_okx_data(symbol: str = "ETH", timeframe: str = "5m") -> pd.DataFrame:
     """
     加载OKX数据
     
     Args:
         symbol: 交易对符号 (BTC, ETH, SOL, DOGE)
+        timeframe: 时间周期 (3m, 5m, 15m)
         
     Returns:
         OHLCV数据DataFrame
     """
     symbol = symbol.upper()
-    data_path = f"okx/data_raw/{symbol}/{symbol.lower()}_5m_latest.csv"
+    data_path = f"okx/data_raw/{symbol}/{symbol.lower()}_{timeframe}_latest.csv"
     
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"找不到数据文件: {data_path}\n请先运行 main.py 来同步数据")
@@ -61,30 +62,36 @@ def load_okx_data(symbol: str = "ETH") -> pd.DataFrame:
     # 排序确保时间顺序
     df = df.sort_index()
     
-    print(f"✅ 成功加载 {symbol} 数据")
+    print(f"✅ 成功加载 {symbol} {timeframe} 数据")
     print(f"📅 数据时间范围: {df.index[0]} 至 {df.index[-1]}")
-    print(f"📊 数据量: {len(df)} 条5分钟K线")
+    print(f"📊 数据量: {len(df)} 条{timeframe}K线")
     print(f"💰 最新价格: ${df['close'].iloc[-1]:.4f}")
     
     return df
 
 
-def plot_candlestick_with_ema_gradient(df: pd.DataFrame, symbol: str, lookback_hours: int = 24):
+def plot_candlestick_with_ema_gradient(df: pd.DataFrame, symbol: str, timeframe: str = "5m", candle_count: int = 50):
     """
     绘制K线图 + EMA线条 + Pine Script风格渐变填充
     改进点：
     1. K线图替代简单的收盘价线图
     2. 基于EMA趋势的动态颜色 (绿色看涨/紫色看跌)
     3. 渐变填充区域体现Pine Script的视觉效果
+    
+    Args:
+        df: OHLCV数据
+        symbol: 交易对符号
+        timeframe: 时间周期 (3m, 5m, 15m)
+        candle_count: 绘制K线数量，默认50根
     """
     
-    # 取最近数据用于绘图
-    if len(df) > lookback_hours * 12:  # 5分钟 * 12 = 1小时
-        df_plot = df.tail(lookback_hours * 12).copy()
+    # 取最近指定数量的K线
+    if len(df) > candle_count:
+        df_plot = df.tail(candle_count).copy()
     else:
         df_plot = df.copy()
     
-    print(f"📊 绘制最近 {len(df_plot)} 根K线 (约{len(df_plot)/12:.1f}小时)")
+    print(f"📊 绘制最近 {len(df_plot)} 根{timeframe}K线")
     
     # 计算EMA和趋势状态
     ema_periods = [20, 30, 40, 50, 60]
@@ -99,7 +106,7 @@ def plot_candlestick_with_ema_gradient(df: pd.DataFrame, symbol: str, lookback_h
     
     # 创建图表
     fig, ax = plt.subplots(figsize=(18, 12))
-    fig.suptitle(f'{symbol.upper()} - Candlestick Chart + MTF EMA Analysis (Pine Script Style)', 
+    fig.suptitle(f'{symbol.upper()} - {timeframe.upper()} Candlestick Chart + MTF EMA Analysis (Pine Script Style)', 
                 fontsize=16, fontweight='bold')
     
     # === 绘制K线图 ===
@@ -204,9 +211,9 @@ def plot_candlestick_with_ema_gradient(df: pd.DataFrame, symbol: str, lookback_h
     mtf_analyzer = MTFEMATrend(
         timeframes=["60", "120", "180", "240", "300"],  # 1h, 2h, 3h, 4h, 5h
         ema_periods=ema_periods,
-        base_timeframe="5"
+        base_timeframe=timeframe.replace("m", "")  # 动态设置基础时间框架
     )
-    mtf_analyzer.update_data(df_plot, "5")
+    mtf_analyzer.update_data(df_plot, timeframe.replace("m", ""))
     
     # 获取分析结果
     strength = mtf_analyzer.get_trend_strength_score()
@@ -229,6 +236,8 @@ def plot_candlestick_with_ema_gradient(df: pd.DataFrame, symbol: str, lookback_h
     # 信息文本框
     info_text = f"""MTF Trend Analysis
 ━━━━━━━━━━━━━━━━
+Timeframe: {timeframe.upper()}
+Candles: {len(df_plot)}
 Trend Strength: {strength:.1f}%
 Market Consensus: {consensus}
 ━━━━━━━━━━━━━━━━
@@ -244,7 +253,7 @@ Analysis Period: 1h-5h"""
     plt.tight_layout()
     
     # 保存高质量图片
-    filename = f"{symbol.lower()}_mtf_ema_candlestick_pine.png"
+    filename = f"{symbol.lower()}_mtf_ema_{timeframe}_candlestick_pine.png"
     plt.savefig(filename, dpi=300, bbox_inches='tight', 
                facecolor='white', edgecolor='none')
     print(f"📊 Pine Script Style Candlestick Chart Saved: {filename}")
@@ -260,28 +269,34 @@ Analysis Period: 1h-5h"""
     return mtf_analyzer
 
 
-def analyze_mtf_ema(symbol: str):
-    """完整的MTF EMA趋势分析"""
-    print(f"🔍 开始分析 {symbol} 的MTF EMA趋势...")
+def analyze_mtf_ema(symbol: str, timeframe: str = "5m", candle_count: int = 50):
+    """完整的MTF EMA趋势分析
+    
+    Args:
+        symbol: 交易对符号
+        timeframe: 时间周期 (3m, 5m, 15m)
+        candle_count: 绘制K线数量
+    """
+    print(f"🔍 开始分析 {symbol} {timeframe} 的MTF EMA趋势...")
     print("=" * 70)
     
     try:
         # 加载数据
-        df = load_okx_data(symbol)
+        df = load_okx_data(symbol, timeframe)
         
         # 创建MTF EMA分析器 (Pine Script配置)
         analyzer = MTFEMATrend(
             timeframes=["60", "120", "180", "240", "300"],  # 1h, 2h, 3h, 4h, 5h  
             ema_periods=[20, 30, 40, 50, 60],
-            base_timeframe="5"  # 5分钟基础数据
+            base_timeframe=timeframe.replace("m", "")  # 动态设置基础时间框架
         )
         
         # 分析数据
-        analyzer.update_data(df, "5")
+        analyzer.update_data(df, timeframe.replace("m", ""))
         analysis = analyzer.get_trend_summary()
         
         # === 显示分析结果 ===
-        print(f"\n📊 {symbol} MTF EMA 趋势分析结果")
+        print(f"\n📊 {symbol} {timeframe} MTF EMA 趋势分析结果")
         print("=" * 70)
         
         # 基本信息
@@ -330,7 +345,7 @@ def analyze_mtf_ema(symbol: str):
         
         # === 生成可视化图表 ===
         print(f"\n📊 生成Pine Script风格可视化图表...")
-        plot_analyzer = plot_candlestick_with_ema_gradient(df, symbol, lookback_hours=48)
+        plot_analyzer = plot_candlestick_with_ema_gradient(df, symbol, timeframe, candle_count)
         
         # === TradingView验证指南 ===
         print(f"\n💡 TradingView 验证步骤:")
@@ -340,6 +355,7 @@ def analyze_mtf_ema(symbol: str):
         print(f"4. 添加EMA指标: 20, 30, 40, 50, 60")
         print(f"5. 切换时间框架: 1h → 2h → 3h → 4h → 5h")
         print(f"6. 对比趋势方向: 🢁上升 🢃下降")
+        print(f"7. 当前使用: {timeframe} 基础时间框架")
         
         print(f"\n📝 Pine Script风格说明:")
         print(f"🢁 = EMA上升 (当前EMA > 2周期前EMA)")
@@ -354,7 +370,7 @@ def analyze_mtf_ema(symbol: str):
         print(f"\n🔧 解决方案:")
         print(f"1. 启动数据同步: python3 main.py")
         print(f"2. 等待数据同步完成")
-        print(f"3. 重新运行: python3 examples/analyze_mtf_ema.py {symbol}")
+        print(f"3. 重新运行: python3 examples/analyze_mtf_ema.py {symbol} {timeframe} {candle_count}")
         return None
         
     except Exception as e:
@@ -367,19 +383,21 @@ def analyze_mtf_ema(symbol: str):
 def check_available_symbols():
     """检查可用数据"""
     print("🔍 检查数据文件可用性...")
-    available = []
+    available = {}
     
     for symbol in ["BTC", "ETH", "SOL", "DOGE"]:
-        data_path = f"okx/data_raw/{symbol}/{symbol.lower()}_5m_latest.csv"
-        if os.path.exists(data_path):
-            size = os.path.getsize(data_path)
-            if size > 1000:  # 至少1KB
-                available.append(symbol)
-                print(f"  ✅ {symbol}: 可用 ({size/1024:.1f}KB)")
+        available[symbol] = []
+        for timeframe in ["3m", "5m", "15m"]:
+            data_path = f"okx/data_raw/{symbol}/{symbol.lower()}_{timeframe}_latest.csv"
+            if os.path.exists(data_path):
+                size = os.path.getsize(data_path)
+                if size > 1000:  # 至少1KB
+                    available[symbol].append(timeframe)
+                    print(f"  ✅ {symbol} {timeframe}: 可用 ({size/1024:.1f}KB)")
+                else:
+                    print(f"  ⚠️  {symbol} {timeframe}: 文件过小 ({size}B)")
             else:
-                print(f"  ⚠️  {symbol}: 文件过小 ({size}B)")
-        else:
-            print(f"  ❌ {symbol}: 文件不存在")
+                print(f"  ❌ {symbol} {timeframe}: 文件不存在")
     
     return available
 
@@ -392,37 +410,85 @@ def main():
     print("   ✅ K线图替代收盘价线图")
     print("   ✅ 去除matrix热图，专注图表分析")  
     print("   ✅ Pine Script风格渐变 (绿色看涨/紫色看跌)")
+    print("   ✅ 自定义时间周期 (3m/5m/15m)")
+    print("   ✅ 自定义K线数量 (默认50根)")
     print("=" * 70)
     
     # 检查数据可用性
     available = check_available_symbols()
     
-    if not available:
+    # 扁平化检查是否有任何可用数据
+    all_available = []
+    for symbol, timeframes in available.items():
+        if timeframes:
+            all_available.append(symbol)
+    
+    if not all_available:
         print(f"\n❌ 无可用数据!")
         print(f"🔧 请先运行: python3 main.py")
         return
     
-    print(f"\n📋 可用交易对: {available}")
+    print(f"\n📋 可用交易对: {all_available}")
     
-    # 选择分析对象
+    # 解析命令行参数
+    symbol = "ETH"  # 默认值
+    timeframe = "5m"  # 默认值
+    candle_count = 50  # 默认值
+    
     if len(sys.argv) > 1:
         symbol = sys.argv[1].upper()
-        if symbol not in available:
-            print(f"⚠️  {symbol} 数据不可用，使用 {available[0]}")
-            symbol = available[0]
+        if symbol not in all_available:
+            print(f"⚠️  {symbol} 数据不可用，使用 {all_available[0]}")
+            symbol = all_available[0]
     else:
-        symbol = available[0]  # 默认第一个
+        symbol = all_available[0]  # 默认第一个
     
-    print(f"\n🎯 分析目标: {symbol}")
+    if len(sys.argv) > 2:
+        timeframe = sys.argv[2].lower()
+        if timeframe not in available.get(symbol, []):
+            print(f"⚠️  {symbol} {timeframe} 数据不可用，使用可用的时间周期")
+            # 优先使用5m，如果不可用则使用第一个可用的
+            if "5m" in available.get(symbol, []):
+                timeframe = "5m"
+            elif available.get(symbol):
+                timeframe = available[symbol][0]
+            else:
+                timeframe = "5m"
+    else:
+        # 优先使用默认的5m，如果不可用则使用该符号的第一个可用时间周期
+        if "5m" in available.get(symbol, []):
+            timeframe = "5m"
+        elif available.get(symbol):
+            timeframe = available[symbol][0]
+        else:
+            timeframe = "5m"
+    
+    if len(sys.argv) > 3:
+        try:
+            candle_count = int(sys.argv[3])
+            if candle_count <= 0:
+                candle_count = 50
+        except ValueError:
+            print(f"⚠️  无效的K线数量，使用默认值50")
+            candle_count = 50
+    
+    print(f"\n🎯 分析参数:")
+    print(f"   📈 交易对: {symbol}")
+    print(f"   ⏰ 时间周期: {timeframe}")
+    print(f"   📊 K线数量: {candle_count}")
+    print(f"   📋 可用时间周期: {available.get(symbol, [])}")
     print("=" * 70)
     
     # 执行分析
-    result = analyze_mtf_ema(symbol)
+    result = analyze_mtf_ema(symbol, timeframe, candle_count)
     
     if result:
         print(f"\n✅ 分析完成! ")
-        print(f"📊 图表文件: {symbol.lower()}_mtf_ema_candlestick_pine.png")
+        print(f"📊 图表文件: {symbol.lower()}_mtf_ema_{timeframe}_candlestick_pine.png")
         print(f"🔗 可与TradingView进行对比验证")
+        print(f"\n💡 使用方法:")
+        print(f"   python3 examples/analyze_mtf_ema.py [交易对] [时间周期] [K线数量]")
+        print(f"   示例: python3 examples/analyze_mtf_ema.py BTC 15m 100")
     else:
         print(f"\n❌ 分析失败")
 

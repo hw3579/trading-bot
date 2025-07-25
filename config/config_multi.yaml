@@ -1,0 +1,141 @@
+# UT Bot Monitor Configuration - Multi Exchange Support
+
+# 交易所配置
+exchanges:
+  okx:
+    name: "okx"
+    enable_rate_limit: true
+    enabled: true
+  hyperliquid:
+    name: "hyperliquid"
+    enable_rate_limit: true
+    enabled: true
+
+monitoring:
+  trigger_second: 10        # 每分钟 xx:10 秒启动
+  trigger_minutes: 5        # 触发间隔（分钟）- 新增配置
+  fetch_limit: 1000         # 抓取数据条数
+  tail_calc: 1000          # 计算指标保留最近行数
+  max_retries: 5           # API请求最大重试次数
+  retry_delay: 5           # 重试延迟时间（秒）
+  max_workers: 2          # 新增：最大线程数配置
+  use_multi_thread: true   # 使用多线程模式
+  
+  # 监控目标配置（支持多币种、多时间框架、多交易所）
+  targets:
+    # OKX 监控目标
+    - exchange: "okx"
+      symbol: "BTC/USDT:USDT"
+      timeframe: "15m"
+      enabled: true
+      csv_raw: "okx/data_raw/BTC/btc_15m_latest.csv"
+      csv_utbot: "okx/data_utbot/BTC/btc_15m_latest_utbotv5.csv"
+
+    - exchange: "okx"
+      symbol: "BTC/USDT:USDT"
+      timeframe: "5m"
+      enabled: true
+      csv_raw: "okx/data_raw/BTC/btc_5m_latest.csv"
+      csv_utbot: "okx/data_utbot/BTC/btc_5m_latest_utbotv5.csv"
+
+    - exchange: "okx"
+      symbol: "ETH/USDT:USDT"
+      timeframe: "15m"
+      enabled: true
+      csv_raw: "okx/data_raw/ETH/eth_15m_latest.csv"
+      csv_utbot: "okx/data_utbot/ETH/eth_15m_latest_utbotv5.csv"
+
+    - exchange: "okx"
+      symbol: "ETH/USDT:USDT"
+      timeframe: "5m"
+      enabled: true
+      csv_raw: "okx/data_raw/ETH/eth_5m_latest.csv"
+      csv_utbot: "okx/data_utbot/ETH/eth_5m_latest_utbotv5.csv"
+
+    - exchange: "okx"
+      symbol: "SOL/USDT:USDT"
+      timeframe: "15m"
+      enabled: true
+      csv_raw: "okx/data_raw/SOL/sol_15m_latest.csv"
+      csv_utbot: "okx/data_utbot/SOL/sol_15m_latest_utbotv5.csv"
+
+    - exchange: "okx"
+      symbol: "SOL/USDT:USDT"
+      timeframe: "5m"
+      enabled: true
+      csv_raw: "okx/data_raw/SOL/sol_5m_latest.csv"
+      csv_utbot: "okx/data_utbot/SOL/sol_5m_latest_utbotv5.csv"
+
+    # Hyperliquid 监控目标
+    - exchange: "hyperliquid"
+      symbol: "BTC/USDC:USDC"
+      timeframe: "15m"
+      enabled: true
+      csv_raw: "hyperliquid/data_raw/BTC/btc_15m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/BTC/btc_15m_latest_utbotv5.csv"
+
+    - exchange: "hyperliquid"
+      symbol: "BTC/USDC:USDC"
+      timeframe: "5m"
+      enabled: true
+      csv_raw: "hyperliquid/data_raw/BTC/btc_5m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/BTC/btc_5m_latest_utbotv5.csv"
+
+    - exchange: "hyperliquid"
+      symbol: "ETH/USDC:USDC"
+      timeframe: "15m"
+      enabled: true
+      csv_raw: "hyperliquid/data_raw/ETH/eth_15m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/ETH/eth_15m_latest_utbotv5.csv"
+
+    - exchange: "hyperliquid"
+      symbol: "ETH/USDC:USDC"
+      timeframe: "5m"
+      enabled: true
+      csv_raw: "hyperliquid/data_raw/ETH/eth_5m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/ETH/eth_5m_latest_utbotv5.csv"
+
+    - exchange: "hyperliquid"
+      symbol: "SOL/USDC:USDC"
+      timeframe: "15m"
+      enabled: true
+      csv_raw: "hyperliquid/data_raw/SOL/sol_15m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/SOL/sol_15m_latest_utbotv5.csv"
+
+    - exchange: "hyperliquid"
+      symbol: "SOL/USDC:USDC"
+      timeframe: "5m"
+      enabled: true
+      csv_raw: "hyperliquid/data_raw/SOL/sol_5m_latest.csv"
+      csv_utbot: "hyperliquid/data_utbot/SOL/sol_5m_latest_utbotv5.csv"
+
+# 通知配置
+notification:
+  enabled: true
+  websocket:
+    enabled: true
+    host: "0.0.0.0"      # 监听所有接口
+    port: 10000          # WebSocket 端口
+    ipv6_enabled: true  # 新增：启用 IPv6 支持
+    bind_both: true     # 新增：同时绑定 IPv4 和 IPv6
+
+# Telegram 配置 (可选：也可通过环境变量设置)
+telegram:
+  enabled: true           # 启用Telegram通知
+  bot_token: ""          # 留空则从环境变量获取 TELEGRAM_BOT_TOKEN
+  chat_ids: []           # 留空则从环境变量获取 TELEGRAM_CHAT_ID (逗号分隔)
+
+# 策略配置
+strategies:
+  enabled: ["utbot"]     # 启用的策略列表
+  utbot:                 # UT Bot 策略配置
+    # 这里可以添加UT Bot特定的配置参数
+
+# 日志配置
+logging:
+  enabled: true
+  log_file: "logs/signals.log"
+  level: "INFO"
+  max_file_size_mb: 10
+  backup_count: 5
+  level: "INFO"

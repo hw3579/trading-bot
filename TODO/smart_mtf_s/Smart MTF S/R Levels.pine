@@ -1,0 +1,449 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © BullByte
+
+//@version=6
+indicator("Smart MTF S/R Levels[BullByte]", shorttitle="Smart MTF S/R", overlay=true, max_lines_count=100, max_labels_count=50, max_boxes_count=20)
+
+// === USER INPUTS ===
+showTF1 = input.bool(true, "Show Timeframe 1")
+tf1 = input.timeframe("15", "Timeframe 1")
+showTF2 = input.bool(true, "Show Timeframe 2")
+tf2 = input.timeframe("30", "Timeframe 2")
+showTF3 = input.bool(true, "Show Timeframe 3")
+tf3 = input.timeframe("60", "Timeframe 3")
+
+showSwings        = input.bool(true, "Show Swing Highs/Lows")
+showPivots        = input.bool(false, "Show Pivot Points")
+showFibonacci     = input.bool(false, "Show Fibonacci Levels")
+showOrderBlocks   = input.bool(false, "Show Order Blocks")
+showVolumeProfile = input.bool(false, "Show Volume Profile")
+
+showWithinPercent = input.float(3.0, "Show levels within X% of price", minval=0.1, step=0.1, tooltip="Only show S/R zones within this % of current price.")
+lookbackSwings = input.int(3, "How many swing highs/lows to show", minval=1, maxval=10)
+clusterPercent = input.float(0.25, "Cluster levels within X% of each other", minval=0.05, step=0.05, tooltip="Merge levels into a zone if within this % of each other.")
+topN = input.int(8, "Show Top N Zones", minval=1, maxval=20)
+reactionLookback = input.int(100, "Bars to check for reactions", minval=20, maxval=500)
+sortBy = input.string("Confluence", "Sort Zones By", options=["Confluence", "Reactions", "Distance"], tooltip="How to sort the dashboard and chart zones.")
+alertConfluence = input.int(3, "Alert if Confluence >=", minval=2, maxval=10)
+zoneWidth = input.int(20, "Zone Box Width (bars)", minval=5, maxval=100)
+future_offset = input.int(20, "Line Length (bars to right)", minval=5, maxval=100)
+label_offset = input.int(10, "Label Offset (bars to right)", minval=2, maxval=100)
+dashSize = input.string("Normal", "Dashboard Size", options=["Normal", "Small"])
+dashLoc = input.string("Top Right", "Dashboard Location", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"])
+dashPos = switch dashLoc
+    "Top Right" => position.top_right
+    "Top Left" => position.top_left
+    "Bottom Right" => position.bottom_right
+    "Bottom Left" => position.bottom_left
+dashRows = dashSize == "Small" ? 6 : 12
+
+// === HELPER FUNCTIONS ===
+getSwings(tf, left, right) =>
+    ph = request.security(syminfo.tickerid, tf, ta.pivothigh(high, left, right))
+    pl = request.security(syminfo.tickerid, tf, ta.pivotlow(low, left, right))
+    [ph, pl]
+
+getLastNPivots(pivotSeries, n) =>
+    var float[] pivots = array.new<float>()
+    if not na(pivotSeries)
+        array.unshift(pivots, pivotSeries)
+        if array.size(pivots) > n
+            array.pop(pivots)
+    pivots
+
+getPivots(tf) =>
+    p = request.security(syminfo.tickerid, tf, (high + low + close) / 3)
+    s1 = request.security(syminfo.tickerid, tf, p * 2 - high)
+    r1 = request.security(syminfo.tickerid, tf, p * 2 - low)
+    [p, s1, r1]
+
+getFibonacci(tf) =>
+    hi = request.security(syminfo.tickerid, tf, ta.highest(high, 50))
+    lo = request.security(syminfo.tickerid, tf, ta.lowest(low, 50))
+    fibs = array.new<float>()
+    if not na(hi) and not na(lo)
+        array.push(fibs, lo + (hi - lo) * 0.236)
+        array.push(fibs, lo + (hi - lo) * 0.382)
+        array.push(fibs, lo + (hi - lo) * 0.5)
+        array.push(fibs, lo + (hi - lo) * 0.618)
+        array.push(fibs, lo + (hi - lo) * 0.786)
+    fibs
+
+getOrderBlocks(tf) =>
+    bullish = request.security(syminfo.tickerid, tf, ta.valuewhen(close > open and close[1] < open[1] and close > high[1], low, 0))
+    bearish = request.security(syminfo.tickerid, tf, ta.valuewhen(close < open and close[1] > open[1] and close < low[1], high, 0))
+    [bullish, bearish]
+
+getPOC() =>
+    idx = ta.highestbars(volume, 50)
+    not na(idx) and idx >= 0 ? hl2[idx] : na
+
+getVolumeProfile(tf) =>
+    vwap = request.security(syminfo.tickerid, tf, ta.vwap)
+    poc = request.security(syminfo.tickerid, tf, getPOC())
+    [vwap, poc]
+
+// === Timeframe Formatting ===
+formatTF(tf) =>
+    if tf == "1"
+        "1m"
+    else if tf == "3"
+        "3m"
+    else if tf == "5"
+        "5m"
+    else if tf == "15"
+        "15m"
+    else if tf == "30"
+        "30m"
+    else if tf == "60"
+        "1h"
+    else if tf == "120"
+        "2h"
+    else if tf == "240"
+        "4h"
+    else if tf == "D"
+        "1D"
+    else if tf == "W"
+        "1W"
+    else if tf == "M"
+        "1M"
+    else
+        tf
+
+// === Method/TF Summary Helper ===
+summarizeMethodsByTF(methods, tfs) =>
+    arrMethods = str.split(methods, "+")
+    arrTFs = str.split(tfs, "+")
+    tfMap = array.new_string()
+    tfSummary = ""
+    for i = 0 to array.size(arrTFs) - 1
+        tf = array.get(arrTFs, i)
+        if not array.includes(tfMap, tf)
+            array.push(tfMap, tf)
+    for j = 0 to array.size(tfMap) - 1
+        tf = array.get(tfMap, j)
+        // Count each method type for this tf
+        countSW = 0
+        countFib = 0
+        countOBB = 0
+        countOBS = 0
+        countVWAP = 0
+        countPOC = 0
+        countPivot = 0
+        for k = 0 to array.size(arrTFs) - 1
+            if array.get(arrTFs, k) == tf
+                m = array.get(arrMethods, k)
+                if m == "Swing High" or m == "Swing Low"
+                    countSW += 1
+                if m == "Fibonacci"
+                    countFib += 1
+                if m == "Bullish OB"
+                    countOBB += 1
+                if m == "Bearish OB"
+                    countOBS += 1
+                if m == "VWAP"
+                    countVWAP += 1
+                if m == "POC"
+                    countPOC += 1
+                if m == "Pivot" or m == "S1" or m == "R1"
+                    countPivot += 1
+        // Build string for this tf
+        tfStr = formatTF(tf) + " ("
+        methodParts = ""
+        if countSW > 0
+            methodParts := methodParts + str.tostring(countSW) + " SW"
+        if countFib > 0
+            methodParts := methodParts + (methodParts != "" ? ", " : "") + str.tostring(countFib) + " Fib"
+        if countOBB > 0
+            methodParts := methodParts + (methodParts != "" ? ", " : "") + str.tostring(countOBB) + " Bull OB"
+        if countOBS > 0
+            methodParts := methodParts + (methodParts != "" ? ", " : "") + str.tostring(countOBS) + " Bear OB"
+        if countVWAP > 0
+            methodParts := methodParts + (methodParts != "" ? ", " : "") + str.tostring(countVWAP) + " VWAP"
+        if countPOC > 0
+            methodParts := methodParts + (methodParts != "" ? ", " : "") + str.tostring(countPOC) + " POC"
+        if countPivot > 0
+            methodParts := methodParts + (methodParts != "" ? ", " : "") + str.tostring(countPivot) + " Pivot"
+        tfStr := tfStr + methodParts + ")"
+        tfSummary := tfSummary + tfStr + (j < array.size(tfMap) - 1 ? ", " : "")
+    tfSummary
+
+// === Fib Ratio Summary for Label ===
+summarizeFibRatios(methods, extras) =>
+    arr = str.split(methods, "+")
+    arrExtra = str.split(extras, "+")
+    fibRatiosList = ""
+    for i = 0 to array.size(arr) - 1
+        m = array.get(arr, i)
+        e = i < array.size(arrExtra) ? array.get(arrExtra, i) : ""
+        if m == "Fibonacci" and e != ""
+            fibRatiosList := fibRatiosList + e + ","
+    fibRatiosList := str.trim(fibRatiosList)
+    if str.length(fibRatiosList) >= 1 and str.substring(fibRatiosList, str.length(fibRatiosList) - 1, str.length(fibRatiosList)) == ","
+        fibRatiosList := str.substring(fibRatiosList, 0, str.length(fibRatiosList) - 1)
+    fibRatiosList
+
+// === Reaction Count Helper ===
+calcReactions(top, bottom) =>
+    count = 0
+    for i = 1 to reactionLookback
+        if close[i] <= top and close[i] >= bottom
+            count += 1
+    count
+
+// === Gather All Levels (call on every bar) ===
+[ph1, pl1] = getSwings(tf1, 3, 3)
+[ph2, pl2] = getSwings(tf2, 3, 3)
+[ph3, pl3] = getSwings(tf3, 3, 3)
+highs1 = getLastNPivots(ph1, lookbackSwings)
+lows1  = getLastNPivots(pl1, lookbackSwings)
+highs2 = getLastNPivots(ph2, lookbackSwings)
+lows2  = getLastNPivots(pl2, lookbackSwings)
+highs3 = getLastNPivots(ph3, lookbackSwings)
+lows3  = getLastNPivots(pl3, lookbackSwings)
+
+[pivot1, s1_1, r1_1] = getPivots(tf1)
+[pivot2, s1_2, r1_2] = getPivots(tf2)
+[pivot3, s1_3, r1_3] = getPivots(tf3)
+
+fibs1 = getFibonacci(tf1)
+fibs2 = getFibonacci(tf2)
+fibs3 = getFibonacci(tf3)
+
+[obBull1, obBear1] = getOrderBlocks(tf1)
+[obBull2, obBear2] = getOrderBlocks(tf2)
+[obBull3, obBear3] = getOrderBlocks(tf3)
+
+[vwap1, poc1] = getVolumeProfile(tf1)
+[vwap2, poc2] = getVolumeProfile(tf2)
+[vwap3, poc3] = getVolumeProfile(tf3)
+
+// === Collect All Levels ===
+var float[] allLevels = array.new<float>()
+var string[] allMethods = array.new<string>()
+var string[] allTFs = array.new<string>()
+var string[] allTypes = array.new<string>()
+var string[] allExtras = array.new<string>()
+
+addLevel(level, method, tf, type, extra) =>
+    if not na(level)
+        array.push(allLevels, level)
+        array.push(allMethods, method)
+        array.push(allTFs, tf)
+        array.push(allTypes, type)
+        array.push(allExtras, extra)
+
+if barstate.islast
+    array.clear(allLevels)
+    array.clear(allMethods)
+    array.clear(allTFs)
+    array.clear(allTypes)
+    array.clear(allExtras)
+    // Swings
+    if showSwings
+        if showTF1 and array.size(highs1) > 0
+            for i = 0 to array.size(highs1) - 1
+                addLevel(array.get(highs1, i), "Swing High", tf1, "Resistance", "")
+            for i = 0 to array.size(lows1) - 1
+                addLevel(array.get(lows1, i), "Swing Low", tf1, "Support", "")
+        if showTF2 and array.size(highs2) > 0
+            for i = 0 to array.size(highs2) - 1
+                addLevel(array.get(highs2, i), "Swing High", tf2, "Resistance", "")
+            for i = 0 to array.size(lows2) - 1
+                addLevel(array.get(lows2, i), "Swing Low", tf2, "Support", "")
+        if showTF3 and array.size(highs3) > 0
+            for i = 0 to array.size(highs3) - 1
+                addLevel(array.get(highs3, i), "Swing High", tf3, "Resistance", "")
+            for i = 0 to array.size(lows3) - 1
+                addLevel(array.get(lows3, i), "Swing Low", tf3, "Support", "")
+    // Pivots
+    if showPivots
+        if showTF1
+            addLevel(pivot1, "Pivot", tf1, "Pivot", "")
+            addLevel(s1_1, "S1", tf1, "Support", "")
+            addLevel(r1_1, "R1", tf1, "Resistance", "")
+        if showTF2
+            addLevel(pivot2, "Pivot", tf2, "Pivot", "")
+            addLevel(s1_2, "S1", tf2, "Support", "")
+            addLevel(r1_2, "R1", tf2, "Resistance", "")
+        if showTF3
+            addLevel(pivot3, "Pivot", tf3, "Pivot", "")
+            addLevel(s1_3, "S1", tf3, "Support", "")
+            addLevel(r1_3, "R1", tf3, "Resistance", "")
+    // Order Blocks
+    if showOrderBlocks
+        if showTF1
+            addLevel(obBull1, "Bullish OB", tf1, "Support", "")
+            addLevel(obBear1, "Bearish OB", tf1, "Resistance", "")
+        if showTF2
+            addLevel(obBull2, "Bullish OB", tf2, "Support", "")
+            addLevel(obBear2, "Bearish OB", tf2, "Resistance", "")
+        if showTF3
+            addLevel(obBull3, "Bullish OB", tf3, "Support", "")
+            addLevel(obBear3, "Bearish OB", tf3, "Resistance", "")
+    // Volume Profile
+    if showVolumeProfile
+        if showTF1
+            addLevel(vwap1, "VWAP", tf1, "Pivot", "")
+            addLevel(poc1, "POC", tf1, "Pivot", "")
+        if showTF2
+            addLevel(vwap2, "VWAP", tf2, "Pivot", "")
+            addLevel(poc2, "POC", tf2, "Pivot", "")
+        if showTF3
+            addLevel(vwap3, "VWAP", tf3, "Pivot", "")
+            addLevel(poc3, "POC", tf3, "Pivot", "")
+    // Fibonacci
+    fibRatios = array.from("0.236", "0.382", "0.5", "0.618", "0.786")
+    if showFibonacci
+        if showTF1 and array.size(fibs1) > 0
+            for i = 0 to array.size(fibs1) - 1
+                addLevel(array.get(fibs1, i), "Fibonacci", tf1, "Pivot", array.get(fibRatios, i))
+        if showTF2 and array.size(fibs2) > 0
+            for i = 0 to array.size(fibs2) - 1
+                addLevel(array.get(fibs2, i), "Fibonacci", tf2, "Pivot", array.get(fibRatios, i))
+        if showTF3 and array.size(fibs3) > 0
+            for i = 0 to array.size(fibs3) - 1
+                addLevel(array.get(fibs3, i), "Fibonacci", tf3, "Pivot", array.get(fibRatios, i))
+
+// === Cluster Levels into Zones ===
+type Zone
+    float level
+    float top
+    float bottom
+    string methods
+    string tfs
+    string types
+    string extras
+    int confluence
+    int reactions
+
+var Zone[] zones = array.new<Zone>()
+
+addOrMergeZone(level, method, tf, type, extra) =>
+    found = false
+    zoneCount = array.size(zones)
+    if zoneCount > 0
+        for i = 0 to zoneCount - 1
+            z = array.get(zones, i)
+            if math.abs(z.level - level) / close * 100 < clusterPercent
+                z.top := math.max(z.top, level)
+                z.bottom := math.min(z.bottom, level)
+                z.level := (z.level + level) / 2
+                z.confluence += 1
+                z.methods := z.methods + "+" + method
+                z.tfs := z.tfs + "+" + tf
+                z.types := z.types == type ? type : "Mixed"
+                z.extras := z.extras == "" ? extra : z.extras + "+" + extra
+                array.set(zones, i, z)
+                found := true
+                break
+    if not found
+        array.push(zones, Zone.new(level, level, level, method, tf, type, extra, 1, 0))
+
+if barstate.islast
+    array.clear(zones)
+    if array.size(allLevels) > 0
+        for i = 0 to array.size(allLevels) - 1
+            addOrMergeZone(array.get(allLevels, i), array.get(allMethods, i), array.get(allTFs, i), array.get(allTypes, i), array.get(allExtras, i))
+
+// === Calculate Reaction Count for Each Zone ===
+if barstate.islast and array.size(zones) > 0
+    for i = 0 to array.size(zones) - 1
+        z = array.get(zones, i)
+        z.reactions := calcReactions(z.top, z.bottom)
+        array.set(zones, i, z)
+
+// === Filter: Only show zones within X% of price ===
+var Zone[] nearZones = array.new<Zone>()
+if barstate.islast
+    array.clear(nearZones)
+    if array.size(zones) > 0
+        for i = 0 to array.size(zones) - 1
+            z = array.get(zones, i)
+            if math.abs(z.level - close) / close * 100 <= showWithinPercent
+                array.push(nearZones, z)
+
+// === Robust Sort by User Selection ===
+swapZones(arr, i, j) =>
+    temp = array.get(arr, i)
+    array.set(arr, i, array.get(arr, j))
+    array.set(arr, j, temp)
+
+sortZones(arr) =>
+    n = array.size(arr)
+    if n > 1
+        for i = 0 to n - 2
+            for j = i + 1 to n - 1
+                zi = array.get(arr, i)
+                zj = array.get(arr, j)
+                cond = sortBy == "Confluence" ? (zj.confluence > zi.confluence) :
+                       sortBy == "Reactions" ? (zj.reactions > zi.reactions) :
+                       (math.abs(zj.level - close) < math.abs(zi.level - close))
+                if cond
+                    swapZones(arr, i, j)
+
+if barstate.islast and array.size(nearZones) > 1
+    sortZones(nearZones)
+
+// === Show only Top N, and never more than dashRows-1 for dashboard ===
+showCount = array.size(nearZones) > 0 ? math.min(array.size(nearZones), topN) : 0
+maxRows = math.min(showCount, dashRows - 1)
+
+// === Plot Shaded Zones, Lines, and Compact Labels (between line and last bar) ===
+var box[] zoneBoxes = array.new<box>()
+if barstate.islast
+    if array.size(zoneBoxes) > 0
+        for i = 0 to array.size(zoneBoxes) - 1
+            box.delete(array.get(zoneBoxes, i))
+    array.clear(zoneBoxes)
+    if showCount > 0
+        for i = 0 to showCount - 1
+            z = array.get(nearZones, i)
+            col = z.types == "Support" ? color.new(color.lime, 80 - z.confluence * 10) : z.types == "Resistance" ? color.new(color.red, 80 - z.confluence * 10) : color.new(color.blue, 80 - z.confluence * 10)
+            b = box.new(left=bar_index-zoneWidth, top=z.top, right=bar_index, bottom=z.bottom, bgcolor=color.new(col, 80), border_color=col)
+            array.push(zoneBoxes, b)
+            line_right = bar_index + future_offset
+            label_x = bar_index + label_offset
+
+            // --- Improved label text ---
+            tfMethodTxt = summarizeMethodsByTF(z.methods, z.tfs)
+            fibRatiosTxt = summarizeFibRatios(z.methods, z.extras)
+            label_txt = str.tostring(z.level, format.mintick)
+            if tfMethodTxt != ""
+                label_txt := label_txt + " | " + tfMethodTxt
+            if fibRatiosTxt != ""
+                label_txt := label_txt + " (" + fibRatiosTxt + ")"
+            label.new(label_x, z.level, label_txt, color=color.black, style=label.style_label_left, textcolor=color.white, size=size.normal)
+            line.new(bar_index, z.level, line_right, z.level, color=col, width=2 + z.confluence, extend=extend.none)
+
+// === Personalized Dashboard ===
+var table dash = table.new(dashPos, 7, dashRows, border_width=2)
+if barstate.islast
+    table.clear(dash, 0, 0)
+    table.cell(dash, 0, 0, "Level", bgcolor=color.rgb(30,30,30), text_color=color.white)
+    table.cell(dash, 1, 0, "Methods (by TF)", bgcolor=color.rgb(30,30,30), text_color=color.white)
+    table.cell(dash, 2, 0, "Type", bgcolor=color.rgb(30,30,30), text_color=color.white)
+    table.cell(dash, 3, 0, "Confl.", bgcolor=color.rgb(30,30,30), text_color=color.white)
+    table.cell(dash, 4, 0, "React.", bgcolor=color.rgb(30,30,30), text_color=color.white)
+    table.cell(dash, 5, 0, "Dist %", bgcolor=color.rgb(30,30,30), text_color=color.white)
+    if maxRows > 0
+        for i = 0 to maxRows - 1
+            z = array.get(nearZones, i)
+            dist = math.abs(z.level - close) / close * 100
+            bgcol = z.types == "Support" ? color.new(color.lime, 0) : z.types == "Resistance" ? color.new(color.red, 0) : color.rgb(30,30,30)
+            tfMethodTxt = summarizeMethodsByTF(z.methods, z.tfs)
+            table.cell(dash, 0, i+1, str.tostring(z.level, format.mintick), bgcolor=bgcol, text_color=color.white)
+            table.cell(dash, 1, i+1, tfMethodTxt, bgcolor=bgcol, text_color=color.white)
+            table.cell(dash, 2, i+1, z.types, bgcolor=bgcol, text_color=color.white)
+            table.cell(dash, 3, i+1, str.tostring(z.confluence), bgcolor=bgcol, text_color=color.white)
+            table.cell(dash, 4, i+1, str.tostring(z.reactions), bgcolor=bgcol, text_color=color.white)
+            table.cell(dash, 5, i+1, str.tostring(dist, "#.##") + "%", bgcolor=bgcol, text_color=color.white)
+    else
+        table.cell(dash, 0, 1, "No zones near price", bgcolor=color.rgb(30,30,30), text_color=color.red)
+
+// === Alert Condition for High-Confluence Zones ===
+if maxRows > 0
+    for i = 0 to maxRows - 1
+        z = array.get(nearZones, i)
+        if z.confluence >= alertConfluence
+            alert("High Confluence S/R Zone at " + str.tostring(z.level, format.mintick) + " (" + summarizeMethodsByTF(z.methods, z.tfs) + ")", alert.freq_once_per_bar_close)
