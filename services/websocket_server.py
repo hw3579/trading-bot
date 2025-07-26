@@ -3,34 +3,32 @@
 """
 
 import asyncio
+import websockets
+from websockets import WebSocketServerProtocol
 import json
 import logging
-import websockets
-from websockets.server import WebSocketServerProtocol
-from typing import Set, Dict, Any
+from typing import Dict, Any, Set
+import socket
+import queue
 import threading
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class WebSocketServer:
-    """WebSocket服务器"""
-    
-    def __init__(self, host: str = "0.0.0.0", port: int = 10000, 
-                 ipv6_enabled: bool = False, bind_both: bool = True):
+    def __init__(self, host: str = "localhost", port: int = 10000):
         self.host = host
         self.port = port
-        self.ipv6_enabled = ipv6_enabled
-        self.bind_both = bind_both
-        self.clients: Set[WebSocketServerProtocol] = set()
-        self.server = None
+        self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.running = False
-        self._lock = threading.Lock()
+        self.server = None
+        # 添加线程安全队列来处理来自工作线程的消息
+        self.message_queue = queue.Queue()
+        self._queue_processor_task = None
         
     async def register_client(self, websocket: WebSocketServerProtocol):
         """注册客户端连接"""
-        with self._lock:
-            self.clients.add(websocket)
+        self.clients.add(websocket)
         
         # 发送欢迎消息
         welcome_msg = {
@@ -44,8 +42,7 @@ class WebSocketServer:
     
     async def unregister_client(self, websocket: WebSocketServerProtocol):
         """注销客户端连接"""
-        with self._lock:
-            self.clients.discard(websocket)
+        self.clients.discard(websocket)
         logger.info(f"❌ 客户端已断开，当前连接数: {len(self.clients)}")
     
     async def send_to_client(self, websocket: WebSocketServerProtocol, message: Dict[str, Any]):
@@ -114,56 +111,72 @@ class WebSocketServer:
             await self.unregister_client(websocket)
     
     async def start(self):
+        """启动WebSocket服务器（兼容接口）"""
+        return await self.start_server()
+
+    async def start_server(self):
         """启动WebSocket服务器"""
         try:
-            if self.ipv6_enabled:
-                if self.bind_both:
-                    # 同时绑定IPv4和IPv6
-                    self.server = await websockets.serve(
-                        self.handle_client, 
-                        self.host, 
-                        self.port,
-                        family=0  # 让系统自动选择
-                    )
-                else:
-                    # 只绑定IPv6
-                    import socket
-                    self.server = await websockets.serve(
-                        self.handle_client, 
-                        self.host, 
-                        self.port,
-                        family=socket.AF_INET6
-                    )
-            else:
-                # 只绑定IPv4
-                import socket
+            self.running = True
+            
+            # 启动队列处理器
+            self._queue_processor_task = asyncio.create_task(self._process_message_queue())
+            
+            # 尝试IPv4和IPv6
+            try:
                 self.server = await websockets.serve(
-                    self.handle_client, 
-                    self.host, 
+                    self.handle_client,
+                    self.host,
+                    self.port,
+                    family=socket.AF_UNSPEC  # 支持IPv4和IPv6
+                )
+                logger.info(f"WebSocket服务器启动在 {self.host}:{self.port}")
+            except Exception as e:
+                logger.warning(f"无法绑定到 {self.host}:{self.port}: {e}")
+                # 尝试只使用IPv4
+                self.server = await websockets.serve(
+                    self.handle_client,
+                    self.host,
                     self.port,
                     family=socket.AF_INET
                 )
+                logger.info(f"WebSocket服务器启动在 {self.host}:{self.port} (仅IPv4)")
             
-            self.running = True
-            
-            protocol_info = ""
-            if self.ipv6_enabled and self.bind_both:
-                protocol_info = " (IPv4 + IPv6)"
-            elif self.ipv6_enabled:
-                protocol_info = " (IPv6)"
-            else:
-                protocol_info = " (IPv4)"
-            
-            logger.info(f"✅ WebSocket服务器已启动{protocol_info}: ws://{self.host}:{self.port}")
-            
+            return self.server
         except Exception as e:
-            logger.error(f"❌ WebSocket服务器启动失败: {e}")
+            logger.error(f"启动WebSocket服务器失败: {e}")
+            self.running = False
             raise
+
+    async def _process_message_queue(self):
+        """处理消息队列中的消息"""
+        while self.running:
+            try:
+                # 非阻塞地检查队列
+                try:
+                    message = self.message_queue.get_nowait()
+                    await self.broadcast_message(message)
+                    self.message_queue.task_done()
+                except queue.Empty:
+                    # 队列为空，稍等片刻
+                    await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.error(f"处理消息队列失败: {e}")
+                await asyncio.sleep(0.1)
     
     async def stop(self):
         """停止WebSocket服务器"""
+        self.running = False
+        
+        # 停止队列处理器
+        if self._queue_processor_task:
+            self._queue_processor_task.cancel()
+            try:
+                await self._queue_processor_task
+            except asyncio.CancelledError:
+                pass
+        
         if self.server:
-            self.running = False
             self.server.close()
             await self.server.wait_closed()
             
@@ -192,14 +205,9 @@ class WebSocketServer:
             return
         
         try:
-            # 获取当前事件循环
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # 如果循环正在运行，创建任务
-                asyncio.create_task(self.broadcast_message(message))
-            else:
-                # 如果循环未运行，直接运行
-                loop.run_until_complete(self.broadcast_message(message))
+            # 将消息放入队列，由主事件循环的队列处理器来处理
+            self.message_queue.put(message)
+            logger.debug(f"消息已加入队列: {message.get('type', '未知类型')}")
         except Exception as e:
             logger.error(f"同步发送消息失败: {e}")
 
@@ -225,7 +233,8 @@ def send_message(message: Dict[str, Any]):
 async def start_message_server(host: str = "0.0.0.0", port: int = 10000, 
                               ipv6_enabled: bool = False, bind_both: bool = True) -> WebSocketServer:
     """启动消息服务器（兼容原有接口）"""
-    server = WebSocketServer(host, port, ipv6_enabled, bind_both)
+    server = WebSocketServer(host, port)
     await server.start()
     set_websocket_server(server)
+    return server
     return server

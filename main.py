@@ -98,9 +98,7 @@ class TradingSystem:
         if self.config.websocket.enabled:
             self.services['websocket'] = WebSocketServer(
                 host=self.config.websocket.host,
-                port=self.config.websocket.port,
-                ipv6_enabled=self.config.websocket.ipv6_enabled,
-                bind_both=self.config.websocket.bind_both
+                port=self.config.websocket.port
             )
             await self.services['websocket'].start()
             set_websocket_server(self.services['websocket'])  # 设置全局实例
