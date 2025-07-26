@@ -1,66 +1,153 @@
-# 🤖 交易监控系统
+# 🚀 交易监控系统 - 进程分离架构
 
-基于模块化架构的多交易所交易信号监控系统，支持UT Bot v5策略。
+## 📋 系统概述
+
+这是一个基于进程分离架构的加密货币交易监控系统，支持实时技术分析、信号检测和多交易所数据监控。
+
+### 🎯 架构特点
+- **进程分离**: 核心系统与Telegram客户端完全独立运行
+- **WebSocket通信**: 统一的命令处理和数据传输
+- **多交易所支持**: OKX、Hyperliquid
+- **实时监控**: 多线程数据监控和信号检测
+- **技术分析**: UTBot、Smart MTF S/R、EMA趋势分析
+
+## 🏗️ 系统架构
+
+```
+┌─────────────────┐    WebSocket     ┌──────────────────┐
+│  核心系统       │ ◄──────────────► │  Telegram客户端  │
+│  (main.py)      │   ws://10000     │  (standalone)    │
+├─────────────────┤                  ├──────────────────┤
+│ • 数据监控      │                  │ • 命令转发       │
+│ • 技术分析      │                  │ • 响应处理       │
+│ • 信号检测      │                  │ • 图表发送       │
+│ • WebSocket服务 │                  │ • 用户交互       │
+└─────────────────┘                  └──────────────────┘
+```
 
 ## 🚀 快速启动
 
-### 1. 配置Telegram（可选）
+### 第一步：启动核心系统
 ```bash
-# 编辑配置脚本
-nano tg_setup.sh
+# 方式1: 使用启动脚本
+./start_core.sh
 
-# 设置你的Bot Token和Chat ID
-export TELEGRAM_BOT_TOKEN="你的_BOT_TOKEN"
-export TELEGRAM_CHAT_ID="你的_CHAT_ID"
+# 方式2: 直接运行
+python3 main.py --config config/config_multi.yaml --log-level INFO
 ```
 
-### 2. 启动系统
+### 第二步：配置并启动Telegram客户端
 ```bash
-# 交互式启动（推荐）
-./start_multi.sh
+# 1. 配置token（编辑 tg_setup.sh）
+nano tg_setup.sh
+# 设置实际的 TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID
 
-# 或者直接启动新架构
-source ./tg_setup.sh  # 如果需要Telegram通知
-python main.py --multi
+# 2. 启动Telegram客户端
+./start_telegram_standalone.sh
+```
+
+## 📱 Telegram命令
+
+通过Telegram机器人发送以下命令：
+
+### 基本命令
+- `/start` - 显示帮助信息
+- `/okx <币种> <时间框架> <数量>` - 查询OKX交易所数据
+- `/hype <币种> <时间框架> <数量>` - 查询Hyperliquid交易所数据
+
+### 示例
+```
+/okx ETH 5m 200      # 获取ETH 5分钟图200个数据点
+/hype BTC 15m 100    # 获取BTC 15分钟图100个数据点
+/okx SOL 1h 50       # 获取SOL 1小时图50个数据点
+```
+
+## ⚙️ 配置文件
+
+### 主配置: `config/config_multi.yaml`
+- 监控目标设置
+- 交易所配置
+- 策略参数
+- WebSocket设置
+
+### Telegram配置: `tg_setup.sh`
+```bash
+export TELEGRAM_BOT_TOKEN="你的bot_token"
+export TELEGRAM_CHAT_ID="你的chat_id"
+```
+
+## 📊 支持的技术指标
+
+- **UTBot Alert**: 基于ATR的趋势信号
+- **Smart MTF S/R**: 多时间框架支撑阻力分析
+- **EMA趋势**: 多周期EMA趋势判断
+- **HMA**: Hull移动平均线
+
+## 🔧 故障排除
+
+### 核心系统问题
+```bash
+# 检查端口占用
+netstat -tlnp | grep 10000
+
+# 查看日志
+tail -f logs/signals.log
+```
+
+### Telegram客户端问题
+```bash
+# 测试WebSocket连接
+python3 test_websocket_improved.py
+
+# 检查token配置
+echo $TELEGRAM_BOT_TOKEN
 ```
 
 ## 📁 项目结构
 
 ```
-├── main.py              # 主启动文件
-├── start_multi.sh       # 交互式启动脚本  
-├── tg_setup.sh         # Telegram配置脚本
-├── config/             # 配置文件
-├── core/               # 核心监控模块
-├── services/           # 服务模块（WebSocket、Telegram）
-├── strategies/         # 交易策略模块
-├── indicators/         # 技术指标
-└── data/              # 数据目录（okx、hyperliquid）
+bot/
+├── main.py                          # 核心系统入口
+├── telegram_standalone.py           # 独立Telegram客户端
+├── start_core.sh                   # 核心系统启动脚本
+├── start_telegram_standalone.sh    # Telegram客户端启动脚本
+├── tg_setup.sh                     # Telegram配置脚本
+├── config/                         # 配置文件
+├── core/                          # 核心监控逻辑
+├── services/                      # 服务层
+├── strategies/                    # 交易策略
+├── indicators/                    # 技术指标
+└── docs/                         # 详细文档
 ```
 
-## ✨ 核心功能
+## 📚 详细文档
 
-- 🔄 **模块化架构**：服务解耦，易于维护和扩展
-- 🧵 **多线程支持**：高效并发处理多个交易对
-- 📡 **WebSocket服务**：实时数据推送
-- 📱 **Telegram通知**：交易信号即时推送
-- 🔁 **智能重试**：API请求失败自动重试
-- 📊 **多交易所**：支持OKX、Hyperliquid等
-- 📈 **策略插件**：UT Bot v5策略，易于扩展
+- [进程分离架构指南](PROCESS_SEPARATION_GUIDE.md)
+- [图表生成说明](CHART_GENERATOR_README.md)
+- [MTF EMA趋势指南](docs/MTF_EMA_TREND_GUIDE.md)
+- [Smart MTF S/R指南](docs/SMART_MTF_SR_GUIDE.md)
 
-## 🔧 配置说明
+## 🔄 系统状态检查
 
-编辑 `config/config_multi.yaml` 进行配置：
+### 检查核心系统
+- WebSocket服务器运行在端口10000
+- 实时监控12个交易对（6个OKX + 6个Hyperliquid）
+- 多线程数据处理
 
-- 交易所设置
-- 监控目标（交易对、时间框架）  
-- 重试机制参数
-- WebSocket和Telegram配置
+### 检查Telegram客户端
+- 连接到核心系统WebSocket
+- 响应用户命令
+- 转发数据并生成图表
 
-## 📖 详细文档
+## ⚡ 性能优化
 
-查看 [`STARTUP_GUIDE.md`](STARTUP_GUIDE.md) 获取详细的使用说明。
+- 多线程数据获取
+- WebSocket异步通信
+- 图表数据缓存
+- 智能重连机制
 
 ---
 
-🎯 **一键启动：`./start_multi.sh` → 选择模式1 → 完成！**
+**维护者**: hw3579  
+**更新时间**: 2025-07-26  
+**架构版本**: 进程分离 v2.0

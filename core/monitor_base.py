@@ -121,14 +121,20 @@ class BaseMonitor(ABC):
                     
                     # 发送信号通知
                     if signal_data:
-                        self.notification.notify_signal(
-                            exchange=signal_data["exchange"],
-                            symbol=signal_data["symbol"],
-                            timeframe=signal_data["timeframe"],
-                            price=signal_data["price"],
-                            signal_type=signal_data["signal_type"],
-                            target_key=signal_data["target_key"]
-                        )
+                        # 检查是否有增强的消息（来自S/R分析）
+                        if "enhanced_message" in signal_data:
+                            # 使用增强的消息
+                            self.notification.notify_enhanced_signal(signal_data)
+                        else:
+                            # 使用原始的信号通知
+                            self.notification.notify_signal(
+                                exchange=signal_data["exchange"],
+                                symbol=signal_data["symbol"],
+                                timeframe=signal_data["timeframe"],
+                                price=signal_data["price"],
+                                signal_type=signal_data["signal_type"],
+                                target_key=signal_data["target_key"]
+                            )
                         
         except Exception as e:
             target_info = f"{target.exchange.upper()} {target.symbol} ({target.timeframe})"

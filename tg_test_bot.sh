@@ -1,6 +1,10 @@
 #!/bin/bash
 # Telegram 配置脚本
-# 手动设置 Telegram Bot Token 和 Chat ID
+# 手动设# 显示配置信息（隐藏敏感信息）
+echo "🤖 Telegram 配置已加载:"
+echo "📍 Bot Token: ${TELEGRAM_BOT_TOKEN:0:10}...***"
+echo "💬 Chat ID: $TELEGRAM_CHAT_ID"
+echo "📡 WebSocket: ws://$WEBSOCKET_HOST:$WEBSOCKET_PORT"egram Bot Token 和 Chat ID
 
 # ========================================
 # 🔐 敏感信息配置区域 - 请修改为你的实际值
@@ -34,7 +38,7 @@ fi
 # 显示配置信息（隐藏敏感信息）
 echo "🤖 Telegram 配置已加载:"
 echo "📍 Bot Token: ${TELEGRAM_BOT_TOKEN:0:10}...***"
-echo "💬 Chat ID: $TELEGRAM_CHAT_ID"
+echo "� Admin Chat IDs: $ADMIN_CHAT_IDS"
 echo "📡 WebSocket: ws://$WEBSOCKET_HOST:$WEBSOCKET_PORT"
 echo ""
 echo "✅ 配置验证通过，环境变量已设置"

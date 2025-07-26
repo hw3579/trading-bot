@@ -8,10 +8,12 @@ Analyzes S/R levels across multiple timeframes using various methods
 import pandas as pd
 import numpy as np
 import json
+import os
 from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 import talib as ta
 from scipy.signal import argrelextrema
+import traceback
 
 
 class Zone:
@@ -142,33 +144,76 @@ class SmartMTFSR:
             return df
     
     def _find_swing_points(self, df: pd.DataFrame, left: int = 3, right: int = 3) -> Tuple[List[float], List[float]]:
-        """查找摆动高低点"""
+        """查找摆动高低点 - 完全按照Pine脚本的pivothigh/pivotlow逻辑"""
         highs = []
         lows = []
         
         if len(df) < left + right + 1:
             return highs, lows
         
-        # 使用scipy找到局部极值
-        high_indices = argrelextrema(df['high'].values, np.greater, order=left)[0]
-        low_indices = argrelextrema(df['low'].values, np.less, order=left)[0]
-        
-        # 获取最近的摆动点
-        if len(high_indices) > 0:
-            recent_highs = df['high'].iloc[high_indices[-self.lookback_swings:]].tolist()
-            highs.extend(recent_highs)
-        
-        if len(low_indices) > 0:
-            recent_lows = df['low'].iloc[low_indices[-self.lookback_swings:]].tolist()
-            lows.extend(recent_lows)
+        try:
+            # 模拟Pine脚本的 ta.pivothigh 和 ta.pivotlow 逻辑
+            high_values = df['high'].values
+            low_values = df['low'].values
+            
+            # 找到枢轴高点：当前点比左右两边的点都高
+            pivot_highs = []
+            pivot_lows = []
+            
+            for i in range(left, len(high_values) - right):
+                # 检查是否为枢轴高点
+                is_pivot_high = True
+                for j in range(i - left, i + right + 1):
+                    if j != i and high_values[j] >= high_values[i]:
+                        is_pivot_high = False
+                        break
+                
+                if is_pivot_high:
+                    pivot_highs.append((i, high_values[i]))
+                
+                # 检查是否为枢轴低点
+                is_pivot_low = True
+                for j in range(i - left, i + right + 1):
+                    if j != i and low_values[j] <= low_values[i]:
+                        is_pivot_low = False
+                        break
+                        
+                if is_pivot_low:
+                    pivot_lows.append((i, low_values[i]))
+            
+            # 获取最近的N个枢轴点 (按照Pine脚本的lookbackSwings参数)
+            if pivot_highs:
+                recent_highs = sorted(pivot_highs, key=lambda x: x[0])[-self.lookback_swings:]
+                highs = [h[1] for h in recent_highs]
+            
+            if pivot_lows:
+                recent_lows = sorted(pivot_lows, key=lambda x: x[0])[-self.lookback_swings:]
+                lows = [l[1] for l in recent_lows]
+                
+        except Exception as e:
+            # 备用方法：使用scipy (但这与Pine脚本不同)
+            high_indices = argrelextrema(df['high'].values, np.greater, order=left)[0]
+            low_indices = argrelextrema(df['low'].values, np.less, order=left)[0]
+            
+            if len(high_indices) > 0:
+                recent_highs = df['high'].iloc[high_indices[-self.lookback_swings:]].tolist()
+                highs.extend(recent_highs)
+            
+            if len(low_indices) > 0:
+                recent_lows = df['low'].iloc[low_indices[-self.lookback_swings:]].tolist()
+                lows.extend(recent_lows)
         
         return highs, lows
     
     def _calculate_pivots(self, df: pd.DataFrame) -> Tuple[float, float, float]:
-        """计算枢轴点"""
+        """计算枢轴点 - 完全按照Pine脚本逻辑"""
         if len(df) == 0:
             return np.nan, np.nan, np.nan
         
+        # Pine脚本使用当前的high, low, close计算
+        # p = (high + low + close) / 3
+        # s1 = p * 2 - high  
+        # r1 = p * 2 - low
         high = df['high'].iloc[-1]
         low = df['low'].iloc[-1]
         close = df['close'].iloc[-1]
@@ -180,71 +225,146 @@ class SmartMTFSR:
         return pivot, s1, r1
     
     def _calculate_fibonacci(self, df: pd.DataFrame, period: int = 50) -> List[float]:
-        """计算斐波那契回撤水平"""
+        """计算斐波那契回撤水平 - 完全按照Pine脚本逻辑"""
         if len(df) < period:
             return []
         
-        recent_data = df.tail(period)
-        high = recent_data['high'].max()
-        low = recent_data['low'].min()
-        
-        if high == low:
-            return []
-        
-        fib_ratios = [0.236, 0.382, 0.5, 0.618, 0.786]
-        fib_levels = []
-        
-        for ratio in fib_ratios:
-            level = low + (high - low) * ratio
-            fib_levels.append(level)
-        
-        return fib_levels
+        try:
+            # Pine脚本逻辑：
+            # hi = ta.highest(high, 50)
+            # lo = ta.lowest(low, 50)  
+            # 然后总是: lo + (hi - lo) * ratio
+            
+            recent_data = df.tail(period)
+            high_values = recent_data['high'].values
+            low_values = recent_data['low'].values
+            
+            # 使用talib的MAX和MIN函数 (对应Pine脚本的ta.highest和ta.lowest)
+            max_period = min(period, len(high_values))
+            highest = ta.MAX(high_values, timeperiod=max_period)[-1]
+            lowest = ta.MIN(low_values, timeperiod=max_period)[-1]
+            
+            if np.isnan(highest) or np.isnan(lowest) or highest == lowest:
+                return []
+            
+            # Pine脚本的固定计算方式：总是从lowest到highest
+            fib_ratios = [0.236, 0.382, 0.5, 0.618, 0.786]
+            fib_levels = []
+            
+            for ratio in fib_ratios:
+                level = lowest + (highest - lowest) * ratio
+                fib_levels.append(level)
+                    
+            return fib_levels
+            
+        except Exception as e:
+            # 备用方法 - 保持Pine脚本的逻辑
+            recent_data = df.tail(period)
+            high = recent_data['high'].max()
+            low = recent_data['low'].min()
+            
+            if high == low:
+                return []
+            
+            fib_ratios = [0.236, 0.382, 0.5, 0.618, 0.786]
+            fib_levels = []
+            
+            for ratio in fib_ratios:
+                level = low + (high - low) * ratio
+                fib_levels.append(level)
+            
+            return fib_levels
     
     def _find_order_blocks(self, df: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
-        """查找订单块"""
+        """查找订单块 - 完全按照Pine脚本逻辑"""
         if len(df) < 3:
             return None, None
         
-        bullish_ob = None
-        bearish_ob = None
-        
-        for i in range(2, len(df)):
-            current = df.iloc[i]
-            prev = df.iloc[i-1]
-            prev2 = df.iloc[i-2]
+        try:
+            # Pine脚本逻辑：
+            # bullish = ta.valuewhen(close > open and close[1] < open[1] and close > high[1], low, 0)
+            # bearish = ta.valuewhen(close < open and close[1] > open[1] and close < low[1], high, 0)
             
-            # 看涨订单块：当前收盘价 > 开盘价，前一根收盘价 < 开盘价，当前收盘价 > 前一根最高价
-            if (current['close'] > current['open'] and 
-                prev['close'] < prev['open'] and 
-                current['close'] > prev['high']):
-                bullish_ob = prev['low']
+            bullish_ob = None
+            bearish_ob = None
             
-            # 看跌订单块：当前收盘价 < 开盘价，前一根收盘价 > 开盘价，当前收盘价 < 前一根最低价
-            if (current['close'] < current['open'] and 
-                prev['close'] > prev['open'] and 
-                current['close'] < prev['low']):
-                bearish_ob = prev['high']
-        
-        return bullish_ob, bearish_ob
+            # 从最新数据向前检查
+            for i in range(len(df) - 1, 0, -1):  # 从最后一根K线向前检查
+                current = df.iloc[i]
+                prev = df.iloc[i-1]
+                
+                # 看涨订单块条件：
+                # close > open and close[1] < open[1] and close > high[1]
+                if (current['close'] > current['open'] and 
+                    prev['close'] < prev['open'] and 
+                    current['close'] > prev['high']):
+                    bullish_ob = prev['low']  # 使用前一根K线的low
+                    break  # ta.valuewhen(..., 0) 只取最近的一个
+                
+                # 看跌订单块条件：
+                # close < open and close[1] > open[1] and close < low[1]  
+                if (current['close'] < current['open'] and 
+                    prev['close'] > prev['open'] and 
+                    current['close'] < prev['low']):
+                    bearish_ob = prev['high']  # 使用前一根K线的high
+                    break  # ta.valuewhen(..., 0) 只取最近的一个
+            
+            return bullish_ob, bearish_ob
+            
+        except Exception as e:
+            return None, None
     
     def _calculate_volume_profile(self, df: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
-        """计算成交量分析"""
+        """计算成交量分析 - 按照Pine脚本逻辑"""
         if len(df) < 50:
             return None, None
         
-        recent_data = df.tail(50)
-        
-        # VWAP计算
-        vwap = (recent_data['volume'] * (recent_data['high'] + recent_data['low'] + recent_data['close']) / 3).sum() / recent_data['volume'].sum()
-        
-        # POC (Point of Control) - 成交量最大的价格点
-        if recent_data['volume'].sum() > 0:
-            max_vol_idx = recent_data['volume'].idxmax()
-            poc = (recent_data.loc[max_vol_idx, 'high'] + recent_data.loc[max_vol_idx, 'low']) / 2
-        else:
-            poc = None
-        
-        return vwap, poc
+        try:
+            # Pine脚本逻辑：
+            # vwap = ta.vwap  (使用talib的VWAP，但Pine脚本可能使用内置VWAP)
+            # poc = getPOC() => idx = ta.highestbars(volume, 50), hl2[idx]
+            
+            recent_data = df.tail(50)
+            high_values = recent_data['high'].values
+            low_values = recent_data['low'].values
+            close_values = recent_data['close'].values
+            volume_values = recent_data['volume'].values
+            
+            # VWAP计算 - 简化版本，更接近Pine脚本
+            typical_price = (high_values + low_values + close_values) / 3
+            vwap = np.sum(typical_price * volume_values) / np.sum(volume_values)
+            
+            # POC (Point of Control) - 按照Pine脚本逻辑
+            # ta.highestbars(volume, 50) 找到最大成交量的bar
+            # 然后使用该bar的hl2作为POC
+            if len(volume_values) > 0 and np.sum(volume_values) > 0:
+                max_vol_idx = np.argmax(volume_values)
+                # hl2 = (high + low) / 2
+                poc = (high_values[max_vol_idx] + low_values[max_vol_idx]) / 2
+            else:
+                poc = None
+            
+            # 确保返回值有效
+            vwap = vwap if not np.isnan(vwap) else None
+            poc = poc if poc is not None and not np.isnan(poc) else None
+            
+            return vwap, poc
+            
+        except Exception as e:
+            # 备用方法
+            recent_data = df.tail(50)
+            
+            # VWAP计算
+            vwap = (recent_data['volume'] * (recent_data['high'] + recent_data['low'] + recent_data['close']) / 3).sum() / recent_data['volume'].sum()
+            
+            # POC (Point of Control) - 成交量最大的价格点
+            if recent_data['volume'].sum() > 0:
+                max_vol_idx = recent_data['volume'].idxmax()
+                poc = (recent_data.loc[max_vol_idx, 'high'] + recent_data.loc[max_vol_idx, 'low']) / 2
+            else:
+                poc = None
+            
+            return vwap, poc
     
     def _calculate_psychological_levels(self, current_price: float) -> List[float]:
         """计算心理价位水平（整数价位）"""
@@ -292,18 +412,30 @@ class SmartMTFSR:
         return levels
     
     def _calculate_reactions(self, df: pd.DataFrame, top: float, bottom: float) -> int:
-        """计算价格对区域的反应次数"""
+        """计算价格对区域的反应次数 - 使用向量化操作优化"""
         if len(df) < self.reaction_lookback:
             return 0
         
-        recent_data = df.tail(self.reaction_lookback)
-        reactions = 0
-        
-        for _, row in recent_data.iterrows():
-            if bottom <= row['close'] <= top:
-                reactions += 1
-        
-        return reactions
+        try:
+            recent_data = df.tail(self.reaction_lookback)
+            
+            # 向量化操作：一次性计算所有价格是否在区域内
+            closes = recent_data['close'].values
+            reactions_mask = (closes >= bottom) & (closes <= top)
+            reactions = np.sum(reactions_mask)
+            
+            return int(reactions)
+            
+        except Exception as e:
+            # 备用方法
+            recent_data = df.tail(self.reaction_lookback)
+            reactions = 0
+            
+            for _, row in recent_data.iterrows():
+                if bottom <= row['close'] <= top:
+                    reactions += 1
+            
+            return reactions
     
     def _cluster_levels(self, levels: List[Tuple[float, str, str, str, str]], current_price: float) -> List[Zone]:
         """将水平聚类为区域"""
@@ -351,18 +483,23 @@ class SmartMTFSR:
         
         return zones[:self.top_n]
     
-    def compute_sr_levels(self, df: pd.DataFrame) -> pd.DataFrame:
+    def compute_sr_levels(self, df: pd.DataFrame, symbol: str = None, timeframe: str = None, exchange: str = None) -> pd.DataFrame:
         """
         计算智能多时间框架支撑阻力位
         
         Args:
             df: 包含OHLCV数据的DataFrame
+            symbol: 交易对符号 (如 'BTC', 'ETH')
+            timeframe: 时间框架 (如 '5m', '15m')
+            exchange: 交易所名称 (如 'hyperliquid', 'okx')
             
         Returns:
-            添加了sr_data列的DataFrame
+            添加了支撑阻力位列的DataFrame
         """
         result_df = df.copy()
-        result_df['sr_data'] = None
+        
+        # 添加Smart MTF S/R数据列 (JSON格式)
+        result_df['sr_data'] = 'None'
         
         try:
             # 为每个时间框架准备数据
@@ -455,26 +592,100 @@ class SmartMTFSR:
                 filtered_zones = self._filter_zones_by_distance(zones, current_price)
                 sorted_zones = self._sort_zones(filtered_zones, current_price)
                 
-                # 生成输出数据
-                sr_data = {
-                    'zones': [zone.to_dict() for zone in sorted_zones],
+                # 分离支撑位和阻力位
+                support_levels = []
+                resistance_levels = []
+                
+                for zone in sorted_zones:
+                    zone_dict = zone.to_dict()
+                    if zone.types in ["Support", "Mixed"]:
+                        support_levels.append(zone_dict)
+                    if zone.types in ["Resistance", "Mixed"]:
+                        resistance_levels.append(zone_dict)
+                    if zone.types == "Pivot":
+                        # 枢轴点根据与当前价格的关系分类
+                        if zone.level > current_price:
+                            resistance_levels.append(zone_dict)
+                        else:
+                            support_levels.append(zone_dict)
+                
+                # 构建JSON数据
+                sr_json_data = {
+                    'timestamp': current_data.index[-1].isoformat() if hasattr(current_data.index[-1], 'isoformat') else str(current_data.index[-1]),
+                    'current_price': float(current_price),
                     'total_zones': len(sorted_zones),
-                    'current_price': current_price,
-                    'timestamp': current_data.index[-1].isoformat() if hasattr(current_data.index[-1], 'isoformat') else str(current_data.index[-1])
+                    'support_count': len(support_levels),
+                    'resistance_count': len(resistance_levels),
+                    'max_confluence': max([zone.confluence for zone in sorted_zones]) if sorted_zones else 0,
+                    'max_reactions': max([zone.reactions for zone in sorted_zones]) if sorted_zones else 0,
+                    'support_levels': support_levels,
+                    'resistance_levels': resistance_levels,
+                    'all_zones': [zone.to_dict() for zone in sorted_zones],
+                    'calculation_params': {
+                        'timeframes': self.timeframes,
+                        'show_swings': self.show_swings,
+                        'show_pivots': self.show_pivots,
+                        'show_fibonacci': self.show_fibonacci,
+                        'show_order_blocks': self.show_order_blocks,
+                        'show_volume_profile': self.show_volume_profile,
+                        'show_psychological_levels': self.show_psychological_levels,
+                        'cluster_percent': self.cluster_percent,
+                        'min_confluence': self.min_confluence
+                    }
                 }
                 
-                result_df.iloc[idx, result_df.columns.get_loc('sr_data')] = json.dumps(sr_data)
+                # 保存为JSON字符串到DataFrame
+                result_df.iloc[idx, result_df.columns.get_loc('sr_data')] = json.dumps(sr_json_data, ensure_ascii=False)
         
         except Exception as e:
             print(f"计算Smart MTF S/R时出错: {e}")
             import traceback
             traceback.print_exc()
         
+        # 保存到文件（如果提供了相关参数）
+        if symbol and timeframe and exchange:
+            self._save_to_file(result_df, symbol, timeframe, exchange)
+        
         return result_df
+    
+    def _save_to_file(self, df: pd.DataFrame, symbol: str, timeframe: str, exchange: str):
+        """将计算结果保存到文件"""
+        try:
+            # 创建目录结构
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 获取项目根目录
+            
+            # 清理符号名称，提取基础货币（例如 BTC/USDT:USDT -> BTC）
+            clean_symbol = symbol.split('/')[0].upper()
+            exchange_dir = os.path.join(base_dir, exchange, "data_sr", clean_symbol)
+            
+            os.makedirs(exchange_dir, exist_ok=True)
+            
+            # 生成文件名
+            filename = f"{clean_symbol.lower()}_{timeframe}_latest_sr.csv"
+            filepath = os.path.join(exchange_dir, filename)
+            
+            # 选择要保存的列
+            save_columns = ['open', 'high', 'low', 'close', 'volume', 'sr_data']
+            
+            # 确保所有列都存在
+            save_df = df[save_columns].copy()
+            
+            # 保存到CSV
+            save_df.to_csv(filepath, index=True, float_format='%.8f')
+            
+            print(f"Smart MTF S/R 数据已保存到: {filepath}")
+            
+        except Exception as e:
+            print(f"保存Smart MTF S/R数据时出错: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # 便捷函数
 def compute_smart_mtf_sr(df: pd.DataFrame, 
+                        symbol: str = None,  # 新增参数
+                        timeframe: str = None,  # 新增参数
+                        exchange: str = None,  # 新增参数
                         timeframes: List[str] = ["15", "60", "240"],  # 15分钟、1小时、4小时
                         show_swings: bool = True,  # Pine脚本默认值
                         show_pivots: bool = False,  # Pine脚本默认值
@@ -495,6 +706,9 @@ def compute_smart_mtf_sr(df: pd.DataFrame,
     
     Args:
         df: OHLCV数据DataFrame
+        symbol: 交易对符号 (如 'BTC', 'ETH')
+        timeframe: 时间框架 (如 '5m', '15m')
+        exchange: 交易所名称 (如 'hyperliquid', 'okx')
         timeframes: 时间框架列表
         show_swings: 显示摆动点
         show_pivots: 显示枢轴点
@@ -512,7 +726,7 @@ def compute_smart_mtf_sr(df: pd.DataFrame,
         min_confluence: 最小汇聚度过滤
         
     Returns:
-        包含sr_data列的DataFrame
+        包含支撑阻力位列的DataFrame
     """
     indicator = SmartMTFSR(
         timeframes=timeframes,
@@ -532,50 +746,36 @@ def compute_smart_mtf_sr(df: pd.DataFrame,
         min_confluence=min_confluence
     )
     
-    return indicator.compute_sr_levels(df)
+    return indicator.compute_sr_levels(df, symbol, timeframe, exchange)
 
 
 if __name__ == "__main__":
     # 测试代码
     print("Smart MTF S/R Levels Indicator - 测试模式")
     
-    # 创建测试数据
-    dates = pd.date_range(start='2024-01-01', periods=1000, freq='5min')
-    np.random.seed(42)
+    # 使用OKX的真实数据进行测试
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    test_file = os.path.join(base_dir, "okx", "data_raw", "ETH", "eth_5m_latest.csv")
     
-    # 生成模拟价格数据
-    price = 100
-    prices = [price]
-    for _ in range(999):
-        price += np.random.normal(0, 0.5)
-        prices.append(max(price, 50))  # 防止价格过低
+    if os.path.exists(test_file):
+        print(f"使用OKX真实数据文件: {test_file}")
+        df = pd.read_csv(test_file, index_col=0, parse_dates=True)
+        print(f"数据加载完成，行数: {len(df)}")
+        print(f"数据时间范围: {df.index[0]} 到 {df.index[-1]}")
+        print(f"当前价格: {df['close'].iloc[-1]:.2f}")
+    else:
+        print(f"找不到测试数据文件: {test_file}")
+        print("请确保OKX数据文件存在")
+        exit(1)
     
-    # 生成OHLCV数据
-    test_data = []
-    for i, (date, price) in enumerate(zip(dates, prices)):
-        open_price = price + np.random.normal(0, 0.2)
-        high_price = max(open_price, price) + abs(np.random.normal(0, 0.3))
-        low_price = min(open_price, price) - abs(np.random.normal(0, 0.3))
-        close_price = price
-        volume = np.random.randint(1000, 10000)
-        
-        test_data.append({
-            'timestamp': date,
-            'open': open_price,
-            'high': high_price,
-            'low': low_price,
-            'close': close_price,
-            'volume': volume
-        })
+    print("开始计算Smart MTF S/R...")
     
-    df = pd.DataFrame(test_data)
-    df.set_index('timestamp', inplace=True)
-    
-    print("测试数据生成完成，开始计算Smart MTF S/R...")
-    
-    # 计算指标
+    # 计算指标（添加保存参数来测试保存功能）
     result = compute_smart_mtf_sr(
         df, 
+        symbol="ETH",  # 修改为ETH
+        timeframe="5m",  # 添加timeframe参数
+        exchange="okx",  # 添加exchange参数
         timeframes=["15", "60", "240"],  # Pine脚本时间框架
         show_swings=True,  # Pine脚本默认开启
         show_pivots=False,  # Pine脚本默认关闭
@@ -599,10 +799,22 @@ if __name__ == "__main__":
                 print(f"\n时间: {data['timestamp']}")
                 print(f"当前价格: {data['current_price']:.2f}")
                 print(f"发现 {data['total_zones']} 个S/R区域")
+                print(f"支撑位数量: {data['support_count']}, 阻力位数量: {data['resistance_count']}")
+                print(f"最大汇聚度: {data['max_confluence']}, 最大反应次数: {data['max_reactions']}")
                 
-                for j, zone in enumerate(data['zones'][:3]):  # 只显示前3个
-                    print(f"  区域 {j+1}: 价格={zone['level']:.2f}, 类型={zone['type']}, 汇聚度={zone['confluence']}, 反应次数={zone['reactions']}")
-                    print(f"    方法: {', '.join(zone['methods'])}")
-                    print(f"    时间框架: {', '.join(zone['timeframes'])}")
-            except:
-                pass
+                # 显示支撑位
+                if data['support_levels']:
+                    print("  支撑位:")
+                    for j, level in enumerate(data['support_levels'][:3]):  # 只显示前3个
+                        print(f"    {j+1}. 价格={level['level']:.2f}, 汇聚度={level['confluence']}, 反应次数={level['reactions']}")
+                        print(f"       方法: {', '.join(level['methods'])}, 时间框架: {', '.join(level['timeframes'])}")
+                
+                # 显示阻力位
+                if data['resistance_levels']:
+                    print("  阻力位:")
+                    for j, level in enumerate(data['resistance_levels'][:3]):  # 只显示前3个
+                        print(f"    {j+1}. 价格={level['level']:.2f}, 汇聚度={level['confluence']}, 反应次数={level['reactions']}")
+                        print(f"       方法: {', '.join(level['methods'])}, 时间框架: {', '.join(level['timeframes'])}")
+            except Exception as parse_error:
+                print(f"解析JSON数据时出错: {parse_error}")
+                print(f"原始数据: {sr_data[:100]}...")  # 只显示前100个字符

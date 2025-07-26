@@ -117,13 +117,13 @@ class TechnicalAnalysisChart:
                 except:
                     continue
         
-        if not latest_sr or not latest_sr.get('zones'):
+        if not latest_sr or not latest_sr.get('all_zones'):
             print(f"⚠️ {symbol} No valid S/R data available")
             print(f"💡 Try increasing candle count (e.g., -c 200) for better S/R detection")
             print(f"💡 Current: {len(df_with_sr)} candles, Recommended: 150+ candles")
             return
         
-        zones = latest_sr['zones']
+        zones = latest_sr['all_zones']
         current_price = latest_sr['current_price']
         
         # 绘制S/R区域和水平线
@@ -322,13 +322,13 @@ class TechnicalAnalysisChart:
                 except:
                     continue
         
-        if not latest_sr or not latest_sr.get('zones'):
+        if not latest_sr or not latest_sr.get('all_zones'):
             print(f"⚠️ {symbol} No valid S/R data available")
             print(f"💡 Try increasing candle count (e.g., -c 200) for better S/R detection")
             print(f"💡 Current: {len(df_plot)} candles, Recommended: 150+ candles")
             return
         
-        zones = latest_sr['zones']
+        zones = latest_sr['all_zones']
         current_price = latest_sr['current_price']
         
         # S/R线条颜色 (TradingView风格)
@@ -528,6 +528,173 @@ class TechnicalAnalysisChart:
             import traceback
             traceback.print_exc()
             return None
+    
+    def generate_chart_from_dataframe(self, df: pd.DataFrame, symbol: str, timeframe: str, 
+                                     filename: str = None, include_sr_analysis: bool = False,
+                                     sr_analysis: dict = None, utbot_data: dict = None,
+                                     return_buffer: bool = False):
+        """从DataFrame生成图表 - 为WebSocket架构设计
+        
+        Args:
+            df: 价格数据DataFrame
+            symbol: 交易对符号
+            timeframe: 时间框架
+            filename: 保存文件名（可选）
+            include_sr_analysis: 是否包含S/R分析
+            sr_analysis: S/R分析数据
+            utbot_data: UTBot数据
+            return_buffer: 是否返回图像缓冲区而不是保存文件
+        
+        Returns:
+            filename (if return_buffer=False) or BytesIO buffer (if return_buffer=True)
+        """
+        print(f"\n🎯 从DataFrame生成 {symbol} 技术分析图表...")
+        
+        try:
+            # 确保有足够的数据
+            if len(df) < 50:
+                print("❌ 数据量不足，无法生成图表")
+                return None
+            
+            # 专门为图表生成临时计算S/R数据（不保存到文件）
+            print(f"📊 为图表生成临时计算S/R数据: {symbol} {timeframe}")
+            df_for_chart = df.copy()
+            
+            try:
+                # 直接调用S/R计算函数，但不保存结果，只用于图表生成
+                from indicators.smart_mtf_sr import compute_smart_mtf_sr
+                
+                # 根据当前时间框架动态调整S/R计算的时间框架
+                if timeframe.endswith('m'):
+                    base_tf = int(timeframe[:-1])
+                    if base_tf <= 5:
+                        # 5分钟及以下：使用5m, 15m, 60m
+                        timeframes = ["5", "15", "60"]
+                    elif base_tf <= 15:
+                        # 15分钟：使用15m, 60m, 240m
+                        timeframes = ["15", "60", "240"]
+                    else:
+                        # 更高时间框架：使用当前框架的倍数
+                        timeframes = [str(base_tf), str(base_tf*4), str(base_tf*16)]
+                else:
+                    # 默认时间框架
+                    timeframes = ["15", "60", "240"]
+                
+                print(f"� 使用时间框架进行S/R计算: {timeframes}")
+                
+                # 临时计算S/R数据（不保存到文件，只用于图表生成）
+                df_with_sr = compute_smart_mtf_sr(
+                    df_for_chart,
+                    timeframes=timeframes,
+                    show_swings=True,
+                    show_pivots=False,
+                    show_fibonacci=False,
+                    show_order_blocks=False,
+                    show_volume_profile=False,
+                    show_psychological_levels=True,
+                    show_within_percent=2.5,
+                    cluster_percent=0.25,
+                    top_n=8,
+                    alert_confluence=4,
+                    min_confluence=2
+                )
+                
+                # 使用临时计算的S/R数据
+                df_for_chart = df_with_sr
+                print(f"✅ S/R数据临时计算完成: {len(df_for_chart)}条数据")
+                
+                # 检查是否生成了有效的S/R数据
+                has_sr_data = False
+                for i in range(len(df_with_sr)-1, -1, -1):
+                    sr_data = df_with_sr.iloc[i]['sr_data']
+                    if sr_data and sr_data != 'None':
+                        try:
+                            sr_json = json.loads(sr_data)
+                            if sr_json.get('zones'):
+                                has_sr_data = True
+                                print(f"✅ 找到S/R区域: {len(sr_json['zones'])}个")
+                                break
+                        except:
+                            continue
+                
+                if not has_sr_data:
+                    print("⚠️ 临时S/R计算未生成有效区域，继续使用计算结果")
+                
+            except Exception as e:
+                print(f"⚠️ S/R临时计算失败: {e}")
+                # 如果临时计算失败，继续使用原始数据
+            
+            # 创建图表 - 使用临时计算的S/R数据
+            fig, ax1, ax2 = self.plot_pine_style_chart_with_sr(df_for_chart, df_for_chart, symbol, timeframe, len(df_for_chart))
+            
+            # 如果有UTBot数据，添加信号标记
+            if utbot_data is not None and not utbot_data.empty:
+                self.add_utbot_signals(ax1, df_for_chart, utbot_data)
+            
+            plt.tight_layout()
+            
+            if return_buffer:
+                # 返回图像缓冲区
+                from io import BytesIO
+                buffer = BytesIO()
+                plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', 
+                           facecolor='black', edgecolor='none')
+                plt.close()
+                buffer.seek(0)
+                print(f"✅ 图表已生成到缓冲区")
+                return buffer
+            else:
+                # 保存到文件
+                if not filename:
+                    filename = f"{symbol.lower()}_chart_{timeframe}.png"
+                plt.savefig(filename, dpi=300, bbox_inches='tight', 
+                           facecolor='black', edgecolor='none')
+                plt.close()
+                print(f"✅ 图表已保存: {filename}")
+                return filename
+            
+        except Exception as e:
+            print(f"❌ 从DataFrame生成图表时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+            
+        except Exception as e:
+            print(f"❌ 从DataFrame生成图表时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def add_utbot_signals(self, ax, df, utbot_data):
+        """在图表上添加UTBot信号标记"""
+        try:
+            # 添加买信号
+            for signal in utbot_data.get('buy_signals', []):
+                idx = signal.get('index')
+                if idx is not None and idx < len(df):
+                    ax.scatter(df.index[idx], signal['price'], 
+                             color='lime', marker='^', s=100, 
+                             zorder=10, label='UTBot BUY' if signal == utbot_data['buy_signals'][0] else "")
+            
+            # 添加卖信号
+            for signal in utbot_data.get('sell_signals', []):
+                idx = signal.get('index')
+                if idx is not None and idx < len(df):
+                    ax.scatter(df.index[idx], signal['price'], 
+                             color='red', marker='v', s=100, 
+                             zorder=10, label='UTBot SELL' if signal == utbot_data['sell_signals'][0] else "")
+            
+            # 添加止损线
+            stop_levels = utbot_data.get('stop_levels', [])
+            if stop_levels:
+                valid_stops = [s for s in stop_levels if not np.isnan(s)]
+                if valid_stops:
+                    ax.plot(df.index[-len(valid_stops):], valid_stops, 
+                           color='orange', linewidth=1, alpha=0.7, 
+                           label='UTBot Stop', linestyle='--')
+                           
+        except Exception as e:
+            print(f"⚠️ 添加UTBot信号时出错: {e}")
     
     def generate_analysis_summary(self, df_with_sr, symbol):
         """Generate analysis summary"""

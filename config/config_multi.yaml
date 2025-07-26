@@ -130,6 +130,23 @@ strategies:
   enabled: ["utbot"]     # 启用的策略列表
   utbot:                 # UT Bot 策略配置
     # 这里可以添加UT Bot特定的配置参数
+    enable_sr_analysis: true  # 启用智能S/R分析
+    smart_sr_config:          # 智能S/R分析配置
+      timeframes: ["15", "60", "240"]  # 分析的时间框架（15分钟、1小时、4小时）
+      show_swings: true              # 显示摆动高低点
+      show_pivots: false             # 显示枢轴点
+      show_fibonacci: false          # 显示斐波那契水平
+      show_order_blocks: false       # 显示订单块
+      show_volume_profile: false     # 显示成交量分析
+      show_psychological_levels: true # 显示心理价位水平
+      show_within_percent: 2.5       # 显示价格附近百分比内的水平
+      lookback_swings: 3             # 摆动点回看数量
+      cluster_percent: 0.25          # 聚类百分比
+      top_n: 8                       # 显示前N个区域
+      reaction_lookback: 100         # 反应计算回看期
+      sort_by: "Confluence"          # 排序方式 ("Confluence", "Reactions", "Distance")
+      alert_confluence: 4            # 警报汇聚度阈值
+      min_confluence: 2        
 
 # 日志配置
 logging:

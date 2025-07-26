@@ -61,6 +61,32 @@ class NotificationService:
         signal_msg = self._format_signal_message(signal_type, exchange, symbol, timeframe, price)
         self.notify(signal_msg, "WARNING", signal_data)
     
+    def notify_enhanced_signal(self, signal_data: Dict[str, Any]):
+        """发送增强的交易信号通知（包含S/R分析）"""
+        # 使用标准的信号消息格式（保持JSON结构一致性）
+        signal_msg = self._format_signal_message(
+            signal_data.get("signal_type", ""),
+            signal_data.get("exchange", ""),
+            signal_data.get("symbol", ""),
+            signal_data.get("timeframe", ""),
+            signal_data.get("price", 0)
+        )
+        
+        # 添加时间戳（如果signal_data中没有）
+        if "timestamp" not in signal_data:
+            signal_data["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        # 将enhanced_message作为单独的字段保留在signal_data中
+        # 这样WebSocket客户端可以选择使用enhanced_message或标准message
+        enhanced_signal_data = signal_data.copy()
+        
+        # 确保enhanced_message字段存在
+        if "enhanced_message" not in enhanced_signal_data:
+            enhanced_signal_data["enhanced_message"] = signal_msg
+        
+        # 使用标准格式的消息，但在signal_data中包含enhanced_message
+        self.notify(signal_msg, "WARNING", enhanced_signal_data)
+    
     def notify_error(self, error_msg: str, target_info: str = ""):
         """发送错误通知"""
         if target_info:
@@ -77,10 +103,6 @@ class NotificationService:
     def notify_info(self, info_msg: str):
         """发送信息通知"""
         self.notify(f"ℹ️ {info_msg}", "INFO")
-    
-    def notify_success(self, success_msg: str):
-        """发送成功通知"""
-        self.notify(f"✅ {success_msg}", "INFO")
     
     def _format_signal_message(self, signal_type: str, exchange: str, 
                               symbol: str, timeframe: str, price: float) -> str:

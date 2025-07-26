@@ -117,13 +117,20 @@ class TelegramClient:
         else:
             price_str = "N/A"
         
-        # 构建消息
+        # 构建基础消息
         timeframe_str = f" ({timeframe})" if timeframe else ""
         message = f"{icon} **{signal_type}**\n"
         message += f"`{symbol}`{timeframe_str}\n"
         message += f"`{price_str}`\n"
         message += f"`{exchange}`\n"
         message += f"`{datetime.now().strftime('%H:%M:%S')}`"
+        
+        # 添加S/R增强信息（如果存在）
+        enhanced_message = data.get('enhanced_message', '')
+        if enhanced_message:
+            # 将enhanced_message转换为Telegram Markdown格式
+            sr_info = enhanced_message.replace('📊', '📊').replace('🎯', '🎯').replace('📈', '📈').replace('📉', '📉')
+            message += f"\n\n{sr_info}"
         
         return message
     
@@ -198,7 +205,7 @@ class TelegramClient:
                 logger.error(f"❌ 发送图片时出错: {e}")
     
     async def handle_info_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """处理 /info 命令"""
+        """处理 /info 命令 - 现在通过WebSocket转发"""
         try:
             args = context.args
             chat_id = update.effective_chat.id
@@ -208,82 +215,210 @@ class TelegramClient:
                 await update.message.reply_text("❌ 您没有权限使用此命令")
                 return
             
-            # 检查图表生成器是否可用
-            if not self.chart_generator:
-                await update.message.reply_text("❌ 图表生成器不可用，请检查相关依赖")
-                return
+            # 解析参数，现在支持交易所选择
+            # 格式: /info [交易所] [币种] [时间框架] [K线数量]
+            # 例如: /info okx ETH 5m 200
             
-            # 解析参数，格式: /info [symbol] [timeframe] [candles]
             # 默认值
+            exchange = "okx"  # 默认交易所改为okx
             symbol = "ETH"
-            timeframe = "15m"
+            timeframe = "5m"
             candles = 200
             
             if len(args) >= 1:
-                symbol = args[0].upper()
-            if len(args) >= 2:
-                timeframe = args[1].lower()
-            if len(args) >= 3:
-                try:
-                    candles = int(args[2])
-                    # 限制范围
-                    if candles < 50:
-                        candles = 50
-                    elif candles > 1000:
-                        candles = 1000
-                except ValueError:
-                    await update.message.reply_text("❌ 无效的K线数量，使用默认值200")
-                    candles = 200
+                # 第一个参数可能是交易所或币种
+                first_arg = args[0].lower()
+                if first_arg in ['okx', 'hype', 'hyperliquid']:
+                    exchange = first_arg
+                    if len(args) >= 2:
+                        symbol = args[1].upper()
+                    if len(args) >= 3:
+                        timeframe = args[2].lower()
+                    if len(args) >= 4:
+                        try:
+                            candles = int(args[3])
+                        except ValueError:
+                            pass
+                else:
+                    # 第一个参数是币种，使用默认交易所
+                    symbol = first_arg.upper()
+                    if len(args) >= 2:
+                        timeframe = args[1].lower()
+                    if len(args) >= 3:
+                        try:
+                            candles = int(args[2])
+                        except ValueError:
+                            pass
+            
+            # 限制K线数量范围
+            if candles < 50:
+                candles = 50
+            elif candles > 1000:
+                candles = 1000
             
             # 发送处理中消息
-            processing_msg = f"🔄 正在生成 {symbol} 技术分析图表...\n"
+            processing_msg = f"🔄 正在生成 {exchange.upper()} {symbol} 技术分析图表...\n"
             processing_msg += f"📊 时间框架: {timeframe}\n"
             processing_msg += f"📈 K线数量: {candles}\n"
             processing_msg += f"⏳ 请稍候..."
             
             await update.message.reply_text(processing_msg)
             
-            # 生成图表
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{symbol.lower()}_technical_analysis_{timeframe}_{candles}c_{timestamp}.png"
+            # 通过WebSocket发送命令给主服务器
+            command = f"/{exchange} {symbol} {timeframe} {candles}"
+            await self.send_command_to_websocket(command, chat_id)
             
-            logger.info(f"📊 开始生成 {symbol} 图表: {timeframe}, {candles} candles")
-            
-            # 生成图表
-            result = self.chart_generator.generate_chart(symbol, timeframe, candles, filename)
-            
-            if result and os.path.exists(result):
-                # 准备图片标题
-                caption = f"📊 **{symbol}/USDT 技术分析**\n"
-                caption += f"🕐 时间框架: `{timeframe}`\n"
-                caption += f"📈 K线数量: `{candles}`\n"
-                caption += f"⏰ 生成时间: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n\n"
-                caption += f"💡 使用 `/info {symbol} [timeframe] [candles]` 自定义参数"
-                
-                # 发送图片
-                await self.send_telegram_photo(result, caption)
-                
-                # 删除临时文件
-                try:
-                    os.remove(result)
-                    logger.info(f"🗑️ 已删除临时文件: {result}")
-                except Exception as e:
-                    logger.warning(f"⚠️ 删除临时文件失败: {e}")
-                
-                logger.info(f"✅ {symbol} 图表发送成功")
-            else:
-                error_msg = f"❌ 生成 {symbol} 图表失败\n"
-                error_msg += f"💡 请检查:\n"
-                error_msg += f"• 交易对是否正确 (支持: BTC, ETH, SOL等)\n"
-                error_msg += f"• 时间框架格式 (如: 5m, 15m, 1h, 4h)\n"
-                error_msg += f"• K线数量范围 (50-1000)"
-                
-                await update.message.reply_text(error_msg)
-                logger.error(f"❌ {symbol} 图表生成失败")
-        
         except Exception as e:
-            logger.error(f"❌ 处理 /info 命令时出错: {e}")
-            await update.message.reply_text(f"❌ 处理命令时出错: {str(e)}")
+            logger.error(f"处理info命令时出错: {e}")
+            await update.message.reply_text(f"❌ 处理命令时出错: {e}")
+    
+    async def send_command_to_websocket(self, command: str, chat_id: int):
+        """通过WebSocket发送命令到主服务器"""
+        try:
+            # 连接到WebSocket服务器
+            async with websockets.connect(self.websocket_uri) as websocket:
+                # 发送命令，包含来源信息
+                command_data = {
+                    "type": "telegram_command",
+                    "command": command,
+                    "chat_id": chat_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                await websocket.send(json.dumps(command_data))
+                logger.info(f"已发送命令到WebSocket: {command}")
+                
+                # 等待响应
+                try:
+                    response = await asyncio.wait_for(websocket.recv(), timeout=30.0)
+                    response_data = json.loads(response)
+                    
+                    if response_data.get('type') == 'chart_data':
+                        # 处理图表数据响应
+                        await self.handle_chart_data_response(response_data, chat_id)
+                    elif response_data.get('type') == 'error':
+                        # 处理错误响应
+                        await self.send_telegram_message(f"❌ {response_data.get('message', '未知错误')}", [str(chat_id)])
+                        
+                except asyncio.TimeoutError:
+                    await self.send_telegram_message("⏰ 查询超时，请稍后重试", [str(chat_id)])
+                    
+        except Exception as e:
+            logger.error(f"发送命令到WebSocket失败: {e}")
+            await self.send_telegram_message(f"❌ 服务器连接失败: {e}", [str(chat_id)])
+    
+    async def handle_chart_data_response(self, data: Dict[str, Any], chat_id: int):
+        """处理图表数据响应"""
+        try:
+            if not self.chart_generator:
+                await self.send_telegram_message("❌ 图表生成器不可用", [str(chat_id)])
+                return
+            
+            # 从响应数据构建DataFrame
+            import pandas as pd
+            
+            chart_data = pd.DataFrame({
+                'open': data['data']['open'],
+                'high': data['data']['high'],
+                'low': data['data']['low'],
+                'close': data['data']['close'],
+                'volume': data['data']['volume']
+            }, index=pd.to_datetime(data['data']['timestamps']))
+            
+            # 生成图表
+            exchange = data['exchange']
+            symbol = data['symbol']
+            timeframe = data['timeframe']
+            
+            chart_path = await self.generate_chart_async(
+                chart_data, 
+                f"{exchange.upper()}:{symbol}",
+                timeframe,
+                include_sr_analysis=data.get('sr_analysis') is not None,
+                sr_analysis=data.get('sr_analysis'),
+                utbot_data=data.get('utbot_data')
+            )
+            
+            if chart_path and os.path.exists(chart_path):
+                # 构建图表信息
+                current_price = data['current_price']
+                price_change = data['price_change']
+                price_change_percent = data['price_change_percent']
+                
+                chart_info = f"📊 **{exchange.upper()} {symbol} 技术分析**\n"
+                chart_info += f"⏰ {timeframe} • {data['count']}根K线\n"
+                chart_info += f"💰 当前价格: `{current_price:.4f}`\n"
+                
+                if price_change >= 0:
+                    chart_info += f"📈 涨跌: `+{price_change:.4f}` (`+{price_change_percent:.2f}%`)"
+                else:
+                    chart_info += f"� 涨跌: `{price_change:.4f}` (`{price_change_percent:.2f}%`)"
+                
+                # 添加S/R分析信息
+                if data.get('sr_analysis'):
+                    sr_data = data['sr_analysis']
+                    chart_info += f"\n\n🎯 支撑阻力分析:\n"
+                    chart_info += f"📊 发现 {sr_data.get('total_zones', 0)} 个区域\n"
+                    chart_info += f"🛡️ 支撑位: {sr_data.get('support_count', 0)} 个\n"
+                    chart_info += f"🚧 阻力位: {sr_data.get('resistance_count', 0)} 个"
+                
+                await self.send_telegram_message(chart_info, [str(chat_id)])
+                await self.send_telegram_photo(chart_path, [str(chat_id)])
+                
+                # 清理临时文件
+                try:
+                    os.remove(chart_path)
+                except:
+                    pass
+            else:
+                await self.send_telegram_message("❌ 图表生成失败", [str(chat_id)])
+                
+        except Exception as e:
+            logger.error(f"处理图表数据响应时出错: {e}")
+            await self.send_telegram_message(f"❌ 图表生成失败: {e}", [str(chat_id)])
+    
+    async def generate_chart_async(self, df, symbol, timeframe, include_sr_analysis=False, sr_analysis=None, utbot_data=None):
+        """异步生成图表"""
+        try:
+            import asyncio
+            import concurrent.futures
+            
+            # 在线程池中运行图表生成（因为图表生成是CPU密集型任务）
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                # 生成临时文件名
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{symbol.replace(':', '_')}_{timeframe}_{timestamp}.png"
+                
+                # 在线程中运行图表生成
+                loop = asyncio.get_event_loop()
+                chart_path = await loop.run_in_executor(
+                    executor, 
+                    self._generate_chart_sync, 
+                    df, symbol, timeframe, filename, include_sr_analysis, sr_analysis, utbot_data
+                )
+                
+                return chart_path
+        except Exception as e:
+            logger.error(f"异步图表生成失败: {e}")
+            return None
+    
+    def _generate_chart_sync(self, df, symbol, timeframe, filename, include_sr_analysis=False, sr_analysis=None, utbot_data=None):
+        """同步生成图表"""
+        try:
+            if not self.chart_generator:
+                return None
+            
+            # 调用图表生成器
+            # 这里需要适配图表生成器的接口
+            return self.chart_generator.generate_chart_from_dataframe(
+                df, symbol, timeframe, filename,
+                include_sr_analysis=include_sr_analysis,
+                sr_analysis=sr_analysis,
+                utbot_data=utbot_data
+            )
+        except Exception as e:
+            logger.error(f"同步图表生成失败: {e}")
+            return None
     
     def setup_command_handlers(self):
         """设置命令处理器"""
