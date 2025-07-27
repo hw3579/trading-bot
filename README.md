@@ -105,8 +105,10 @@ UTBot-BUY | okx-SOL-15m
 ```yaml
 # 监控配置
 monitoring:
-  trigger_second: 10      # 每分钟xx秒启动
-  trigger_minutes: 5      # 触发间隔(分钟)
+  trigger_second: 10      # 触发秒数（每个周期的第10秒启动）
+  trigger_minutes: 5      # 触发间隔（分钟）- 绝对时间触发
+                         # 例如：每小时的 0:10, 5:10, 10:10, 15:10, 20:10 等时间点
+                         # 无论何时启动系统，都会在这些固定时间点执行
   
 # UTBot策略配置  
 strategies:
@@ -116,6 +118,16 @@ strategies:
       timeframes: ["15", "60", "240"]  # 分析时间框架
       cluster_percent: 0.25            # 聚类百分比
       min_confluence: 2                # 最小汇聚度
+```
+
+### 时间触发示例
+```
+配置: trigger_minutes=5, trigger_second=10
+
+触发时间点:
+00:10, 05:10, 10:10, 15:10, 20:10, 25:10, 30:10...
+
+无论在13:02还是13:07启动，下次都会在13:10:10执行
 ```
 - **HMA**: Hull移动平均线
 

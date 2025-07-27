@@ -216,30 +216,19 @@ class SmartSRStrategy:
             # 只包含支撑阻力位分析，不重复信号信息
             message_parts = []
             
-            # 添加支撑阻力位分析
+            # 添加支撑阻力位分析 - 简化格式
             if "error" not in sr_analysis:
-                message_parts.append(f"📊 支撑阻力位分析:")
-                message_parts.append(f"🎯 发现 {sr_analysis.get('total_zones', 0)} 个S/R区域")
-                message_parts.append(f"📈 支撑位: {sr_analysis.get('support_count', 0)} 个")
-                message_parts.append(f"📉 阻力位: {sr_analysis.get('resistance_count', 0)} 个")
-                message_parts.append(f"⚡ 最大汇聚度: {sr_analysis.get('max_confluence', 0)}")
-                
-                # 市场上下文
-                if sr_analysis.get("market_context"):
-                    message_parts.append(f"\n🔍 市场情况: {sr_analysis['market_context']}")
-                
-                # 关键位置信息
+                # 关键支撑位信息
                 key_supports = sr_analysis.get("key_support_levels", [])
                 if key_supports:
-                    message_parts.append(f"\n🛡️ 关键支撑位:")
-                    for i, support in enumerate(key_supports[:2], 1):
-                        message_parts.append(f"  {i}. ${support['price']:.2f} (汇聚度:{support['confluence']}, 距离:{support['distance_percent']:.1f}%)")
+                    support_prices = [f"{support['price']:.2f}" for support in key_supports[:2]]
+                    message_parts.append(f"Support: {' '.join(support_prices)}")
                 
+                # 关键阻力位信息
                 key_resistances = sr_analysis.get("key_resistance_levels", [])
                 if key_resistances:
-                    message_parts.append(f"\n🚧 关键阻力位:")
-                    for i, resistance in enumerate(key_resistances[:2], 1):
-                        message_parts.append(f"  {i}. ${resistance['price']:.2f} (汇聚度:{resistance['confluence']}, 距离:{resistance['distance_percent']:.1f}%)")
+                    resistance_prices = [f"{resistance['price']:.2f}" for resistance in key_resistances[:2]]
+                    message_parts.append(f"Resistance: {' '.join(resistance_prices)}")
             else:
                 message_parts.append(f"⚠️ S/R分析: {sr_analysis.get('error', '未知错误')}")
             

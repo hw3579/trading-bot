@@ -145,15 +145,47 @@ class BaseMonitor(ABC):
         return [t for t in self.config.targets if t.enabled and t.exchange in self.exchanges]
     
     def seconds_until_trigger(self) -> float:
-        """计算距离下次触发的秒数"""
-        now = datetime.utcnow()
-        target = now.replace(second=self.config.trigger_second, microsecond=0)
+        """计算距离下次触发的秒数 - 基于绝对时间触发"""
+        from datetime import datetime, timedelta
         
-        # 如果当前时间已经过了触发时间，则计算下一个触发周期
-        if target <= now:
-            target += timedelta(minutes=self.config.trigger_minutes)
+        now = datetime.utcnow()
+        
+        # 计算下一个触发时间点（基于整点的绝对时间）
+        # 首先计算当前小时内的下一个触发点
+        current_minute = now.minute
+        target_minute = ((current_minute // self.config.trigger_minutes) + 1) * self.config.trigger_minutes
+        
+        # 如果超过60分钟，则转到下一小时
+        if target_minute >= 60:
+            target = now.replace(minute=0, second=self.config.trigger_second, microsecond=0) + timedelta(hours=1)
+        else:
+            target = now.replace(minute=target_minute, second=self.config.trigger_second, microsecond=0)
+        
+        # 特殊情况：如果当前时间刚好在触发点之前几秒内，则使用当前周期
+        if (current_minute % self.config.trigger_minutes == 0 and 
+            now.second < self.config.trigger_second):
+            target = now.replace(minute=current_minute, second=self.config.trigger_second, microsecond=0)
         
         return (target - now).total_seconds()
+    
+    def get_next_trigger_time(self) -> str:
+        """获取下次触发的绝对时间字符串"""
+        from datetime import datetime, timedelta
+        
+        now = datetime.utcnow()
+        current_minute = now.minute
+        target_minute = ((current_minute // self.config.trigger_minutes) + 1) * self.config.trigger_minutes
+        
+        if target_minute >= 60:
+            target = now.replace(minute=0, second=self.config.trigger_second, microsecond=0) + timedelta(hours=1)
+        else:
+            target = now.replace(minute=target_minute, second=self.config.trigger_second, microsecond=0)
+        
+        if (current_minute % self.config.trigger_minutes == 0 and 
+            now.second < self.config.trigger_second):
+            target = now.replace(minute=current_minute, second=self.config.trigger_second, microsecond=0)
+        
+        return target.strftime("%H:%M:%S")
     
     @abstractmethod
     async def start(self):

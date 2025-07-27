@@ -31,7 +31,8 @@ class SingleThreadMonitor(BaseMonitor):
         for target in enabled_targets:
             exchange_counts[target.exchange] = exchange_counts.get(target.exchange, 0) + 1
         
-        self.notification.notify_info(f"单线程监控启动，每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s 触发")
+        self.notification.notify_info(f"单线程监控启动，每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s 触发 (绝对时间)")
+        self.notification.notify_info(f"下次触发: {self.get_next_trigger_time()}")
         self.notification.notify_info(f"交易所统计: {dict(exchange_counts)}")
         self.notification.notify_info(f"总监控目标: {len(enabled_targets)} 个")
         

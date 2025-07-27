@@ -49,7 +49,8 @@ class MultiThreadMonitor(BaseMonitor):
         
         startup_message = f"""🚀 多线程监控系统启动
 ├─ {sync_status}
-├─ 触发频率: 每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s
+├─ 触发频率: 每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s (绝对时间)
+├─ 下次触发: {self.get_next_trigger_time()}
 ├─ 总监控目标: {len(enabled_targets)} 个
 ├─ 交易所统计: {dict(exchange_counts)}
 └─ 工作线程: {self.max_workers} 个"""
