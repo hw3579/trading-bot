@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package trading;
+
+// 交易查询服务
+service TradingService {
+  // 获取图表数据
+  rpc GetChart(ChartRequest) returns (ChartResponse);
+  
+  // 获取交易所状态
+  rpc GetExchangeStatus(ExchangeStatusRequest) returns (ExchangeStatusResponse);
+  
+  // 获取支撑阻力位数据
+  rpc GetSupportResistance(SRRequest) returns (SRResponse);
+}
+
+// 图表请求
+message ChartRequest {
+  string exchange = 1;    // 交易所: "okx", "hyperliquid"
+  string symbol = 2;      // 交易对: "BTC", "ETH", "SOL"
+  string timeframe = 3;   // 时间框架: "5m", "15m", "1h"
+  int32 count = 4;        // K线数量
+  bool include_sr = 5;    // 是否包含支撑阻力位
+}
+
+// 图表响应
+message ChartResponse {
+  bool success = 1;
+  string message = 2;
+  bytes chart_data = 3;   // base64编码的图片数据
+  SRData sr_data = 4;     // 支撑阻力位数据（可选）
+}
+
+// 交易所状态请求
+message ExchangeStatusRequest {
+  string exchange = 1;
+}
+
+// 交易所状态响应
+message ExchangeStatusResponse {
+  bool success = 1;
+  string exchange = 2;
+  bool online = 3;
+  int64 last_update = 4;
+  repeated string symbols = 5;
+}
+
+// 支撑阻力位请求
+message SRRequest {
+  string exchange = 1;
+  string symbol = 2;
+  string timeframe = 3;
+}
+
+// 支撑阻力位响应
+message SRResponse {
+  bool success = 1;
+  string message = 2;
+  SRData data = 3;
+}
+
+// 支撑阻力位数据
+message SRData {
+  double current_price = 1;
+  int32 total_zones = 2;
+  repeated SRZone zones = 3;
+}
+
+// 支撑阻力位区域
+message SRZone {
+  double level = 1;
+  string type = 2;        // "Support", "Resistance", "Mixed", "Pivot"
+  int32 confluence = 3;
+  double top = 4;
+  double bottom = 5;
+  repeated string methods = 6;
+  repeated string timeframes = 7;
+}

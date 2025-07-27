@@ -9,3 +9,5 @@ python-telegram-bot
 scipy
 matplotlib
 requests
+grpcio 
+grpcio-tools

@@ -532,7 +532,7 @@ class TechnicalAnalysisChart:
     def generate_chart_from_dataframe(self, df: pd.DataFrame, symbol: str, timeframe: str, 
                                      filename: str = None, include_sr_analysis: bool = False,
                                      sr_analysis: dict = None, utbot_data: dict = None,
-                                     return_buffer: bool = False):
+                                     return_buffer: bool = False, candles: int = None):
         """从DataFrame生成图表 - 为WebSocket架构设计
         
         Args:
@@ -544,6 +544,7 @@ class TechnicalAnalysisChart:
             sr_analysis: S/R分析数据
             utbot_data: UTBot数据
             return_buffer: 是否返回图像缓冲区而不是保存文件
+            candles: 要显示的K线数量（如果为None，使用全部数据）
         
         Returns:
             filename (if return_buffer=False) or BytesIO buffer (if return_buffer=True)
@@ -556,9 +557,19 @@ class TechnicalAnalysisChart:
                 print("❌ 数据量不足，无法生成图表")
                 return None
             
+            # 如果指定了candles参数，限制数据长度
+            df_for_chart = df.copy()
+            if candles is not None and candles > 0:
+                if len(df_for_chart) > candles:
+                    df_for_chart = df_for_chart.tail(candles).copy()
+                    print(f"📊 限制显示最近 {candles} 根K线，实际使用 {len(df_for_chart)} 根")
+                else:
+                    print(f"📊 请求 {candles} 根K线，实际数据 {len(df_for_chart)} 根")
+            else:
+                print(f"📊 使用全部数据: {len(df_for_chart)} 根K线")
+            
             # 专门为图表生成临时计算S/R数据（不保存到文件）
             print(f"📊 为图表生成临时计算S/R数据: {symbol} {timeframe}")
-            df_for_chart = df.copy()
             
             try:
                 # 直接调用S/R计算函数，但不保存结果，只用于图表生成
@@ -625,7 +636,8 @@ class TechnicalAnalysisChart:
                 # 如果临时计算失败，继续使用原始数据
             
             # 创建图表 - 使用临时计算的S/R数据
-            fig, ax1, ax2 = self.plot_pine_style_chart_with_sr(df_for_chart, df_for_chart, symbol, timeframe, len(df_for_chart))
+            display_candles = candles if candles is not None else len(df_for_chart)
+            fig, ax1, ax2 = self.plot_pine_style_chart_with_sr(df_for_chart, df_for_chart, symbol, timeframe, display_candles)
             
             # 如果有UTBot数据，添加信号标记
             if utbot_data is not None and not utbot_data.empty:
