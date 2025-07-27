@@ -117,14 +117,39 @@ class TelegramStandaloneClient:
             elif message_type == "notification":
                 # 处理一般通知
                 notification_message = data.get("message", "")
-                for chat_id in self.admin_chat_ids:
-                    try:
-                        await self.app.bot.send_message(
-                            chat_id=chat_id,
-                            text=f"ℹ️ {notification_message}"
-                        )
-                    except Exception as e:
-                        logger.error(f"❌ 发送通知到 {chat_id} 失败: {e}")
+                signal_data = data.get("data", {})
+                
+                # 检查是否是交易信号通知（level为WARNING且包含signal_type）
+                level = data.get("level", "")
+                if level == "WARNING" and "signal_type" in signal_data:
+                    # 这是交易信号通知
+                    enhanced_message = signal_data.get("enhanced_message", "")
+                    
+                    if enhanced_message:
+                        # 如果有增强消息（包含S/R分析），发送完整信息
+                        full_message = f"{notification_message}\n\n{enhanced_message}"
+                    else:
+                        # 普通信号消息
+                        full_message = notification_message
+                    
+                    for chat_id in self.admin_chat_ids:
+                        try:
+                            await self.app.bot.send_message(
+                                chat_id=chat_id,
+                                text=full_message
+                            )
+                        except Exception as e:
+                            logger.error(f"❌ 发送信号到 {chat_id} 失败: {e}")
+                else:
+                    # 其他通知消息
+                    for chat_id in self.admin_chat_ids:
+                        try:
+                            await self.app.bot.send_message(
+                                chat_id=chat_id,
+                                text=notification_message
+                            )
+                        except Exception as e:
+                            logger.error(f"❌ 发送通知到 {chat_id} 失败: {e}")
                         
             else:
                 logger.debug(f"📨 收到未知类型消息: {message_type}")

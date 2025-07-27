@@ -57,6 +57,32 @@ class DualPortWebSocketServer:
         """注册信号推送客户端连接"""
         self.signal_clients.add(websocket)
         logger.info(f"✅ 信号客户端已连接，当前连接数: {len(self.signal_clients)}")
+        
+        # 发送欢迎消息给新连接的客户端
+        welcome_message = {
+            "type": "welcome",
+            "level": "INFO",
+            "message": (
+                "🎉 连接成功\n"
+                "交易信号推送服务\n"
+                "实时监控中...\n"
+                f"端口: {self.signal_port}\n"
+                f"{datetime.now().strftime('%H:%M:%S')}"
+            ),
+            "timestamp": datetime.now().isoformat(),
+            "data": {
+                "server": "signal_server",
+                "port": self.signal_port,
+                "status": "connected",
+                "total_connections": len(self.signal_clients)
+            }
+        }
+        
+        try:
+            await websocket.send(json.dumps(welcome_message, ensure_ascii=False))
+            logger.info(f"📤 已发送欢迎消息给新客户端")
+        except Exception as e:
+            logger.error(f"❌ 发送欢迎消息失败: {e}")
     
     async def unregister_signal_client(self, websocket: WebSocketServerProtocol):
         """注销信号推送客户端连接"""
@@ -363,29 +389,6 @@ class DualPortWebSocketServer:
             logger.error(f"❌ 启动WebSocket信号推送服务器失败: {e}")
             raise
     
-    async def start_signal_server_only(self):
-        """只启动信号推送服务器 (端口 10000)"""
-        try:
-            self.running = True
-            
-            # 只启动信号推送服务器
-            self.signal_server = await websockets.serve(
-                self.handle_signal_connection,
-                self.signal_host,
-                self.signal_port
-            )
-            logger.info(f"📡 信号推送服务器启动在 {self.signal_host}:{self.signal_port}")
-            
-            # 启动信号队列处理器
-            self._queue_processor_task = asyncio.create_task(self._process_signal_queue())
-            logger.info("📋 信号队列处理器已启动")
-            
-            logger.info("🚀 WebSocket信号推送服务器启动完成")
-            
-        except Exception as e:
-            logger.error(f"❌ 启动WebSocket信号推送服务器失败: {e}")
-            raise
-    
     async def stop(self):
         """停止WebSocket服务器"""
         logger.info("🛑 正在停止双端口WebSocket服务器...")
@@ -422,38 +425,3 @@ class DualPortWebSocketServer:
                 return True
         except OSError:
             return False
-
-# 为了向后兼容，创建一个兼容性类
-class WebSocketServer:
-    """向后兼容的WebSocket服务器类"""
-    
-    def __init__(self, host: str = "localhost", port: int = 10000):
-        # 创建双端口服务器，但保持单端口接口
-        if port == 10000:
-            # 如果指定10000端口，使用双端口模式
-            self.dual_server = DualPortWebSocketServer(
-                signal_host=host, signal_port=10000,
-                query_host=host, query_port=10001
-            )
-        else:
-            # 其他端口，创建查询服务器
-            self.dual_server = DualPortWebSocketServer(
-                signal_host=host, signal_port=port,
-                query_host=host, query_port=port + 1
-            )
-    
-    async def start(self):
-        """启动服务器"""
-        await self.dual_server.start()
-    
-    async def stop(self):
-        """停止服务器"""
-        await self.dual_server.stop()
-    
-    def send_message_sync(self, message: dict):
-        """发送信号消息"""
-        self.dual_server.send_signal_sync(message)
-    
-    @property
-    def running(self):
-        return self.dual_server.running

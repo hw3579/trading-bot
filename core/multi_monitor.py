@@ -38,10 +38,23 @@ class MultiThreadMonitor(BaseMonitor):
         for target in enabled_targets:
             exchange_counts[target.exchange] = exchange_counts.get(target.exchange, 0) + 1
         
-        self.notification.notify_info(f"多线程监控启动，每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s 触发")
-        self.notification.notify_info(f"交易所统计: {dict(exchange_counts)}")
-        self.notification.notify_info(f"总监控目标: {len(enabled_targets)} 个")
-        self.notification.notify_info(f"多线程处理: {self.max_workers} 个工作线程")
+        # 执行初始数据同步
+        sync_results = await self.sync_data_once()
+        
+        # 合并启动消息为一条，包含同步结果
+        if sync_results['error_count'] > 0:
+            sync_status = f"⚠️ 数据同步: {sync_results['success_count']}/{sync_results['success_count'] + sync_results['error_count']} 成功"
+        else:
+            sync_status = f"✅ 数据同步: {sync_results['success_count']} 个目标完成"
+        
+        startup_message = f"""🚀 多线程监控系统启动
+├─ {sync_status}
+├─ 触发频率: 每 {self.config.trigger_minutes} 分钟 {self.config.trigger_second}s
+├─ 总监控目标: {len(enabled_targets)} 个
+├─ 交易所统计: {dict(exchange_counts)}
+└─ 工作线程: {self.max_workers} 个"""
+        
+        self.notification.notify_info(startup_message)
         
         self.running = True
         self.monitor_task = asyncio.create_task(self._monitor_loop(enabled_targets))
@@ -104,12 +117,12 @@ class MultiThreadMonitor(BaseMonitor):
         return stats_tracker.finish_batch()
     
     async def sync_data_once(self):
-        """一次性数据同步"""
+        """一次性数据同步 - 返回结果不发送通知"""
         enabled_targets = self.get_enabled_targets()
         
         if not enabled_targets:
             logger.warning("没有启用的监控目标")
-            return
+            return {"success_count": 0, "error_count": 0, "total_time": 0}
         
         logger.info(f"🔄 开始初始数据同步: {len(enabled_targets)} 个目标")
         
@@ -118,10 +131,8 @@ class MultiThreadMonitor(BaseMonitor):
         
         logger.info(f"📊 初始同步完成: 成功 {results['success_count']}, 失败 {results['error_count']}, 耗时 {results['total_time']:.2f}s")
         
-        if results['error_count'] > 0:
-            self.notification.notify_warning(f"初始数据同步部分失败: {results['error_count']} 个目标")
-        else:
-            self.notification.notify_info(f"初始数据同步完成: {results['success_count']} 个目标")
+        # 返回结果，不再发送通知
+        return results
     
     async def stop(self):
         """停止监控"""

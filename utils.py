@@ -396,7 +396,7 @@ class MessageFormatter:
     def format_signal_message(signal_type: str, exchange: str, symbol: str, 
                             timeframe: str, price: float) -> str:
         """
-        格式化交易信号消息
+        格式化交易信号消息 - 新的简洁格式
         
         Args:
             signal_type: 信号类型 ("BUY" 或 "SELL")
@@ -408,8 +408,24 @@ class MessageFormatter:
         Returns:
             格式化的信号消息
         """
+        from datetime import datetime
+        
         emoji = "🟢" if signal_type.upper() == "BUY" else "🔴"
-        return f"{emoji} {signal_type.upper()} SIGNAL - {exchange.upper()} {symbol} ({timeframe}) @ {price:.4f}"
+        current_time = datetime.now().strftime("%H:%M:%S")
+        
+        # 格式化价格，添加千位分隔符
+        formatted_price = f"{price:,.4f}"
+        
+        # 新的多行格式
+        message = (
+            f"{emoji} {signal_type.upper()}\n"
+            f"{symbol} ({timeframe})\n"
+            f"{formatted_price}\n"
+            f"{exchange.upper()}\n"
+            f"{current_time}"
+        )
+        
+        return message
     
     @staticmethod
     def create_signal_data(exchange: str, symbol: str, timeframe: str, 

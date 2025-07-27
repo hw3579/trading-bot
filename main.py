@@ -65,15 +65,10 @@ class TradingSystem:
         logging.getLogger('grpc').setLevel(logging.WARNING)
         
     async def _initial_data_sync(self):
-        """初始数据同步"""
-        logger.info("📊 启动时数据同步...")
-        if self.monitor:
-            try:
-                # 手动触发一次数据同步
-                await self.monitor.sync_data_once()
-                logger.info("✅ 初始数据同步完成")
-            except Exception as e:
-                logger.warning(f"⚠️ 初始数据同步失败: {e}")
+        """启动时进行一次数据同步 - 现在集成到监控启动中"""
+        # 数据同步现在集成到监控器的启动过程中
+        # 这个方法保留用于向后兼容
+        logger.info("📊 数据同步已集成到监控启动流程")
         
     async def init_data_sync(self):
         """初始化数据同步 - 向后兼容方法"""

@@ -1,11 +1,9 @@
 """通知服务统一管理模块"""
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from datetime import datetime
-
-from services.websocket_server import WebSocketServer
-from services.telegram_client import TelegramClient
+from utils import DataFrameUtils
 from config.config_loader import NotificationConfig
 
 logger = logging.getLogger(__name__)
@@ -13,8 +11,8 @@ logger = logging.getLogger(__name__)
 class NotificationService:
     """通知服务统一管理"""
     
-    def __init__(self, websocket_server: Optional[WebSocketServer] = None, 
-                 telegram_client: Optional[TelegramClient] = None,
+    def __init__(self, websocket_server: Optional[Any] = None, 
+                 telegram_client: Optional[Any] = None,
                  config: NotificationConfig = None):
         self.websocket_server = websocket_server
         self.telegram_client = telegram_client
@@ -37,7 +35,7 @@ class NotificationService:
         
         # WebSocket推送
         if self.websocket_server:
-            websocket_msg = self._create_websocket_message(
+            websocket_msg = DataFrameUtils.create_websocket_message(
                 msg_type="notification",
                 level=level,
                 message=message,
@@ -102,22 +100,26 @@ class NotificationService:
     
     def notify_info(self, info_msg: str):
         """发送信息通知"""
-        self.notify(f"ℹ️ {info_msg}", "INFO")
+        self.notify(info_msg, "INFO")
     
     def _format_signal_message(self, signal_type: str, exchange: str, 
                               symbol: str, timeframe: str, price: float) -> str:
-        """格式化信号消息"""
+        """格式化信号消息 - 新的简洁格式"""
+        from datetime import datetime
+        
         icon = "🟢" if signal_type == "BUY" else "🔴"
-        return f"{icon} {signal_type} SIGNAL - {exchange.upper()} {symbol} ({timeframe}) @ {price:.4f}"
-    
-    def _create_websocket_message(self, msg_type: str, level: str, message: str, 
-                                 signal_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """创建WebSocket消息"""
-        return {
-            "type": msg_type,
-            "level": level,
-            "message": message,
-            "timestamp": datetime.now().isoformat(),
-            "data": signal_data or {},
-            "source": "TradingSystem"
-        }
+        current_time = datetime.now().strftime("%H:%M:%S")
+        
+        # 格式化价格，添加千位分隔符
+        formatted_price = f"{price:,.4f}"
+        
+        # 新的多行格式
+        message = (
+            f"{icon} {signal_type}\n"
+            f"{symbol} ({timeframe})\n"
+            f"{formatted_price}\n"
+            f"{exchange.upper()}\n"
+            f"{current_time}"
+        )
+        
+        return message
