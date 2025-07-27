@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Any, Optional, Union
 from datetime import datetime
-from utils import DataFrameUtils
+from utils import MessageFormatter
 from config.config_loader import NotificationConfig
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class NotificationService:
         
         # WebSocket推送
         if self.websocket_server:
-            websocket_msg = DataFrameUtils.create_websocket_message(
+            websocket_msg = MessageFormatter.create_websocket_message(
                 msg_type="notification",
                 level=level,
                 message=message,
